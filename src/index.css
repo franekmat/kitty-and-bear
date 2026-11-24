@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Nunito', -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: #FFF9FA;
+    color: #4A2C38;
+  }
+
+  h1, h2, .font-display {
+    font-family: 'Playfair Display', Georgia, serif;
+  }
+
+  .font-editorial {
+    font-family: 'Lora', Georgia, serif;
+  }
+}
+
+/* Custom soft scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #FFF4F7;
+}
+::-webkit-scrollbar-thumb {
+  background: #E5B4C5;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #D48DA6;
+}
