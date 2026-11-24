@@ -600,6 +600,26 @@ export default function App() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-full bg-white border-2 border-[#DFAAC0] p-0.5 text-xs font-extrabold shadow-2xs">
+                <button
+                  onClick={() => setViewMode('cards')}
+                  className={`inline-flex items-center gap-1 rounded-full px-3 py-1 transition cursor-pointer ${
+                    !isCompact ? 'bg-[#C95D7E] text-white shadow-2xs' : 'text-[#8C5366] hover:text-[#6B253E]'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>Cards View</span>
+                </button>
+                <button
+                  onClick={() => setViewMode('table')}
+                  className={`inline-flex items-center gap-1 rounded-full px-3 py-1 transition cursor-pointer ${
+                    isCompact ? 'bg-[#C95D7E] text-white shadow-2xs' : 'text-[#8C5366] hover:text-[#6B253E]'
+                  }`}
+                >
+                  <TableIcon className="w-3.5 h-3.5" />
+                  <span>Compact Sheet</span>
+                </button>
+              </div>
               <button
                 onClick={() => setShowAdd(true)}
                 className="inline-flex items-center gap-1 rounded-full px-3.5 py-1.5 text-xs font-bold text-white shadow-2xs transition cursor-pointer"
@@ -668,6 +688,27 @@ export default function App() {
                     Surprise us!
                   </button>
                 )}
+
+                <div className="inline-flex rounded-full bg-white border-2 border-[#DFAAC0] p-1 text-xs sm:text-sm font-extrabold shadow-2xs">
+                  <button
+                    onClick={() => setViewMode('cards')}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 transition cursor-pointer ${
+                      !isCompact ? 'bg-[#C95D7E] text-white shadow-2xs' : 'text-[#8C5366] hover:text-[#6B253E]'
+                    }`}
+                  >
+                    <LayoutGrid className="w-4 h-4" />
+                    <span>Cards View</span>
+                  </button>
+                  <button
+                    onClick={() => setViewMode('table')}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 transition cursor-pointer ${
+                      isCompact ? 'bg-[#C95D7E] text-white shadow-2xs' : 'text-[#8C5366] hover:text-[#6B253E]'
+                    }`}
+                  >
+                    <TableIcon className="w-4 h-4" />
+                    <span>Compact Sheet</span>
+                  </button>
+                </div>
 
                 <button
                   onClick={() => setShowSync(true)}
