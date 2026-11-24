@@ -13,6 +13,7 @@
  */
 
 const PASSCODE = ''; // Optional shared secret; leave empty to allow without passcode
+const GEMINI_API_KEY = ''; // Optional: paste your Google AI Studio key here so BOTH phones get instant ✨ AI auto-fill!
 
 function doGet(e) {
   return handleRequest_(e, 'GET');
@@ -59,6 +60,10 @@ function handleRequest_(e, method) {
 
     if (action === 'updateRating') {
       return jsonOut_(updateRomance_(ss, body.section, body.row, body.romance));
+    }
+
+    if (action === 'aiFill') {
+      return jsonOut_(aiFillWithGemini_(body.prompt));
     }
 
     return jsonOut_({ ok: false, error: 'Unknown action: ' + action });
@@ -332,4 +337,40 @@ function updateRomance_(ss, section, row, romance) {
   if (!cfg || !row) return { ok: false, error: 'Invalid section/row' };
   ss.getSheetByName(cfg[0]).getRange(Number(row), cfg[1]).setValue(Number(romance));
   return { ok: true };
+}
+
+function aiFillWithGemini_(prompt) {
+  if (!GEMINI_API_KEY) {
+    return { ok: false, error: 'No Gemini API key configured in Apps Script' };
+  }
+  const resp = UrlFetchApp.fetch(
+    'https://generativelanguage.googleapis.com/v1beta/interactions',
+    {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'x-goog-api-key': GEMINI_API_KEY },
+      payload: JSON.stringify({
+        model: 'gemini-3.8-flash',
+        tools: [{ type: 'google_search' }],
+        input: prompt,
+      }),
+      muteHttpExceptions: true,
+    }
+  );
+  const code = resp.getResponseCode();
+  const body = resp.getContentText();
+  if (code < 200 || code >= 300) {
+    return { ok: false, error: 'Gemini HTTP ' + code + ': ' + body.slice(0, 160) };
+  }
+  const json = JSON.parse(body);
+  const outputs = json.outputs || [];
+  let text = json.output_text || '';
+  if (!text) {
+    for (let i = 0; i < outputs.length; i++) {
+      if (outputs[i].type === 'text' && outputs[i].text) {
+        text += (text ? '\n' : '') + outputs[i].text;
+      }
+    }
+  }
+  return { ok: true, text: text };
 }

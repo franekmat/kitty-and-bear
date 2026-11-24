@@ -1815,6 +1815,7 @@ export default function App() {
       {showAdd && (
         <AddItemModal
           section={section}
+          syncCfg={syncCfg}
           onClose={() => setShowAdd(false)}
           onSubmit={handleAddItem}
         />
