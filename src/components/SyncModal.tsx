@@ -5,6 +5,7 @@ import type { SyncConfig } from '../types';
 interface Props {
   config: SyncConfig;
   spreadsheetUrl: string;
+  syncError?: string | null;
   onSaveAndSync: (cfg: SyncConfig) => Promise<void>;
   onResetLocal: () => void;
   onClose: () => void;
@@ -13,6 +14,7 @@ interface Props {
 export const SyncModal: React.FC<Props> = ({
   config,
   spreadsheetUrl,
+  syncError,
   onSaveAndSync,
   onResetLocal,
   onClose,
@@ -20,7 +22,9 @@ export const SyncModal: React.FC<Props> = ({
   const [endpointUrl, setEndpointUrl] = useState(config.endpointUrl);
   const [passcode, setPasscode] = useState(config.passcode);
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(
+    syncError ? { type: 'err', text: syncError } : null
+  );
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();

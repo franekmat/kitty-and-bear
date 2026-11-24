@@ -1,7 +1,7 @@
 import seedDataRaw from '../data/seedData.json';
 import type { AppData, SectionKey, SyncConfig } from '../types';
 
-const STORAGE_DATA_KEY = 'kitty_bear_app_data_v1';
+const STORAGE_DATA_KEY = 'kitty_bear_app_data_v2';
 const STORAGE_SYNC_KEY = 'kitty_bear_sync_cfg_v1';
 
 export const DEFAULT_SYNC_ENDPOINT =
@@ -48,6 +48,23 @@ export function resetLocalData(): AppData {
   return SEED_DATA;
 }
 
+async function parseAppsScriptJson(res: Response): Promise<Record<string, unknown>> {
+  const text = await res.text();
+  if (res.status === 401 || res.status === 403 || text.trimStart().startsWith('<')) {
+    throw new Error(
+      `Apps Script returned HTTP ${res.status} — in Google Sheets open Extensions → Apps Script → Deploy → Manage deployments → Edit (pencil), set "Who has access" to "Anyone", and click Deploy.`
+    );
+  }
+  if (!res.ok) {
+    throw new Error(`Apps Script request failed (HTTP ${res.status})`);
+  }
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error('Unexpected response from Apps Script (not JSON).');
+  }
+}
+
 export async function fetchLiveFromSheet(cfg: SyncConfig): Promise<AppData> {
   if (!cfg.endpointUrl) throw new Error('No Apps Script URL configured');
   const url = new URL(cfg.endpointUrl);
@@ -55,16 +72,16 @@ export async function fetchLiveFromSheet(cfg: SyncConfig): Promise<AppData> {
   if (cfg.passcode) url.searchParams.set('passcode', cfg.passcode);
 
   const res = await fetch(url.toString(), { method: 'GET' });
-  const json = await res.json();
-  if (!json.ok) throw new Error(json.error || 'Failed to read Google Sheet');
+  const json = await parseAppsScriptJson(res);
+  if (!json.ok) throw new Error(String(json.error || 'Failed to read Google Sheet'));
 
   const merged: AppData = {
     spreadsheetUrl: SEED_DATA.spreadsheetUrl,
     spreadsheetId: SEED_DATA.spreadsheetId,
-    restaurants: json.restaurants || [],
-    dates: json.dates || [],
-    winter: json.winter || [],
-    home: json.home || [],
+    restaurants: (json.restaurants as AppData['restaurants']) || [],
+    dates: (json.dates as AppData['dates']) || [],
+    winter: (json.winter as AppData['winter']) || [],
+    home: (json.home as AppData['home']) || [],
   };
   saveLocalData(merged);
   return merged;
@@ -87,11 +104,11 @@ export async function pushAddItem(
         item,
       }),
     });
-    const json = await res.json();
-    if (!json.ok) return { synced: false, error: json.error };
-    return { synced: true, row: json.row };
+    const json = await parseAppsScriptJson(res);
+    if (!json.ok) return { synced: false, error: String(json.error || 'Sync failed') };
+    return { synced: true, row: typeof json.row === 'number' ? json.row : undefined };
   } catch (err) {
-    return { synced: false, error: String(err) };
+    return { synced: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -114,11 +131,11 @@ export async function pushUpdateStatus(
         status,
       }),
     });
-    const json = await res.json();
-    if (!json.ok) return { synced: false, error: json.error };
+    const json = await parseAppsScriptJson(res);
+    if (!json.ok) return { synced: false, error: String(json.error || 'Sync failed') };
     return { synced: true };
   } catch (err) {
-    return { synced: false, error: String(err) };
+    return { synced: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -141,11 +158,11 @@ export async function pushUpdateRomance(
         romance,
       }),
     });
-    const json = await res.json();
-    if (!json.ok) return { synced: false, error: json.error };
+    const json = await parseAppsScriptJson(res);
+    if (!json.ok) return { synced: false, error: String(json.error || 'Sync failed') };
     return { synced: true };
   } catch (err) {
-    return { synced: false, error: String(err) };
+    return { synced: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 

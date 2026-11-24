@@ -171,9 +171,21 @@ function statusBadgeStyle(status: string): string {
 function priorityRank(p: string): number {
   const s = p.toLowerCase();
   if (s.includes('must') || s.includes('essential')) return 1;
-  if (s.includes('soon') || s.includes('useful')) return 2;
-  if (s.includes('nice') || s.includes('cosy')) return 3;
-  return 4;
+  if (s.includes('soon')) return 2;
+  if (s.includes('useful')) return 3;
+  if (s.includes('nice') || s.includes('cosy')) return 4;
+  if (s.includes('not sure')) return 5;
+  return 6;
+}
+
+function priorityBadgeStyle(p: string): string {
+  const s = p.toLowerCase();
+  if (s.includes('must') || s.includes('essential')) return 'bg-[#FADCE6] text-[#9E2952]';
+  if (s.includes('soon')) return 'bg-[#FDEFE2] text-[#9E5A28]';
+  if (s.includes('useful')) return 'bg-[#E6F1FC] text-[#2F5D8C]';
+  if (s.includes('nice') || s.includes('cosy')) return 'bg-[#E6F6EC] text-[#2D6A4F]';
+  if (s.includes('not sure')) return 'bg-[#F1ECFA] text-[#664C8C]';
+  return 'bg-[#F5EEF0] text-[#6E4B57]';
 }
 
 export default function App() {
@@ -182,6 +194,8 @@ export default function App() {
   const [section, setSection] = useState<SectionKey>('restaurants');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
   const [syncing, setSyncing] = useState(false);
+  const [syncState, setSyncState] = useState<'idle' | 'ok' | 'error'>('idle');
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   // Filters
@@ -214,9 +228,12 @@ export default function App() {
     fetchLiveFromSheet(syncCfg)
       .then((fresh) => {
         setData(fresh);
+        setSyncState('ok');
+        setSyncError(null);
       })
-      .catch(() => {
-        // silent fallback to local data
+      .catch((err) => {
+        setSyncState('error');
+        setSyncError(err instanceof Error ? err.message : String(err));
       })
       .finally(() => setSyncing(false));
   }, []);
@@ -542,9 +559,14 @@ export default function App() {
     try {
       const fresh = await fetchLiveFromSheet(syncCfg);
       setData(fresh);
+      setSyncState('ok');
+      setSyncError(null);
       notify('Pulled latest updates from Google Sheet ♡');
     } catch (err) {
-      notify(`Sync failed: ${err instanceof Error ? err.message : String(err)}`);
+      const message = err instanceof Error ? err.message : String(err);
+      setSyncState('error');
+      setSyncError(message);
+      notify(`Sync failed — click “Sync needs access” for fix`);
     } finally {
       setSyncing(false);
     }
@@ -637,10 +659,29 @@ export default function App() {
               )}
               <button
                 onClick={() => setShowSync(true)}
-                className="inline-flex items-center gap-1.5 rounded-full bg-white/90 border border-[#E8C0CE] px-3 py-1.5 text-xs font-bold text-[#7E4D5E] hover:bg-white transition cursor-pointer"
+                title={syncError || 'Configure Google Sheet live sync'}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
+                  syncState === 'error'
+                    ? 'bg-[#FFF5E6] border-[#F0C28A] text-[#9A5316] hover:bg-[#FFEDD6]'
+                    : 'bg-white/90 border-[#E8C0CE] text-[#7E4D5E] hover:bg-white'
+                }`}
               >
-                <span className={`w-2 h-2 rounded-full ${syncCfg.endpointUrl ? 'bg-[#34A86B]' : 'bg-[#D99AB0]'}`} />
-                {syncCfg.endpointUrl ? 'Live Sync' : 'Sheet Sync'}
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    syncState === 'ok'
+                      ? 'bg-[#34A86B]'
+                      : syncState === 'error'
+                        ? 'bg-[#E5922E]'
+                        : 'bg-[#D99AB0]'
+                  }`}
+                />
+                {syncState === 'ok'
+                  ? 'Live Sync'
+                  : syncState === 'error'
+                    ? 'Sync needs access'
+                    : syncCfg.endpointUrl
+                      ? 'Connecting…'
+                      : 'Sheet Sync'}
               </button>
               {syncCfg.endpointUrl && (
                 <button
@@ -721,14 +762,29 @@ export default function App() {
 
                 <button
                   onClick={() => setShowSync(true)}
-                  className="inline-flex items-center gap-1.5 rounded-full bg-white/85 border border-[#E8C0CE] px-3.5 py-2.5 text-xs font-bold text-[#7E4D5E] hover:bg-white transition cursor-pointer"
+                  title={syncError || 'Configure Google Sheet live sync'}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-2.5 text-xs font-bold transition cursor-pointer ${
+                    syncState === 'error'
+                      ? 'bg-[#FFF5E6] border-[#F0C28A] text-[#9A5316] hover:bg-[#FFEDD6]'
+                      : 'bg-white/85 border-[#E8C0CE] text-[#7E4D5E] hover:bg-white'
+                  }`}
                 >
                   <span
                     className={`w-2 h-2 rounded-full ${
-                      syncCfg.endpointUrl ? 'bg-[#34A86B]' : 'bg-[#D99AB0]'
+                      syncState === 'ok'
+                        ? 'bg-[#34A86B]'
+                        : syncState === 'error'
+                          ? 'bg-[#E5922E]'
+                          : 'bg-[#D99AB0]'
                     }`}
                   />
-                  {syncCfg.endpointUrl ? 'Live Sheet Sync' : 'Connect Sheet Sync'}
+                  {syncState === 'ok'
+                    ? 'Live Sheet Sync'
+                    : syncState === 'error'
+                      ? 'Sync needs access'
+                      : syncCfg.endpointUrl
+                        ? 'Connecting…'
+                        : 'Connect Sheet Sync'}
                 </button>
 
                 {syncCfg.endpointUrl && (
@@ -1487,13 +1543,7 @@ export default function App() {
                       </span>
                     )}
                     {h.priority && (
-                      <span
-                        className={`rounded-full px-2.5 py-1 ${
-                          h.priority.toLowerCase().includes('essential')
-                            ? 'bg-[#FADCE6] text-[#9E2952]'
-                            : 'bg-[#FDEFE2] text-[#9E5A28]'
-                        }`}
-                      >
+                      <span className={`rounded-full px-2.5 py-1 ${priorityBadgeStyle(h.priority)}`}>
                         {h.priority}
                       </span>
                     )}
@@ -1779,7 +1829,7 @@ export default function App() {
                       <td className="py-2 px-2 text-center whitespace-nowrap text-[#9A5A28] font-semibold">{h.when || '—'}</td>
                       <td className="py-2 px-2 text-center whitespace-nowrap">
                         {h.priority && (
-                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${h.priority.toLowerCase().includes('essential') ? 'bg-[#FADCE6] text-[#9E2952]' : 'bg-[#FDEFE2] text-[#9E5A28]'}`}>
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${priorityBadgeStyle(h.priority)}`}>
                             {h.priority}
                           </span>
                         )}
@@ -1825,11 +1875,21 @@ export default function App() {
         <SyncModal
           config={syncCfg}
           spreadsheetUrl={data.spreadsheetUrl}
+          syncError={syncError}
           onSaveAndSync={async (cfg) => {
             saveSyncConfig(cfg);
             setSyncCfg(cfg);
-            const fresh = await fetchLiveFromSheet(cfg);
-            setData(fresh);
+            try {
+              const fresh = await fetchLiveFromSheet(cfg);
+              setData(fresh);
+              setSyncState('ok');
+              setSyncError(null);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              setSyncState('error');
+              setSyncError(message);
+              throw err;
+            }
           }}
           onResetLocal={() => {
             setData(resetLocalData());
