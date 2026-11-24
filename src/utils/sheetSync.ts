@@ -4,16 +4,22 @@ import type { AppData, SectionKey, SyncConfig } from '../types';
 const STORAGE_DATA_KEY = 'kitty_bear_app_data_v1';
 const STORAGE_SYNC_KEY = 'kitty_bear_sync_cfg_v1';
 
+export const DEFAULT_SYNC_ENDPOINT =
+  'https://script.google.com/macros/s/AKfycbzG06F4J8RxmczkqMpzBGL2ApNkFc96llhje-ZG5CcqMZDMxFx354YIMXOTMwQWUJsjuw/exec';
+
 export const SEED_DATA = seedDataRaw as AppData;
 
 export function loadSyncConfig(): SyncConfig {
   try {
     const raw = localStorage.getItem(STORAGE_SYNC_KEY);
-    if (raw) return JSON.parse(raw) as SyncConfig;
+    if (raw) {
+      const parsed = JSON.parse(raw) as SyncConfig;
+      if (parsed && parsed.endpointUrl) return parsed;
+    }
   } catch {
     // ignore
   }
-  return { endpointUrl: '', passcode: '' };
+  return { endpointUrl: DEFAULT_SYNC_ENDPOINT, passcode: '' };
 }
 
 export function saveSyncConfig(cfg: SyncConfig) {
