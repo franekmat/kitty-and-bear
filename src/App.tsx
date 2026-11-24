@@ -180,7 +180,7 @@ export default function App() {
   const [data, setData] = useState<AppData>(() => loadLocalData());
   const [syncCfg, setSyncCfg] = useState<SyncConfig>(() => loadSyncConfig());
   const [section, setSection] = useState<SectionKey>('restaurants');
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
   const [syncing, setSyncing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -588,14 +588,14 @@ export default function App() {
               <img
                 src="./kitty-and-bear.jpg"
                 alt="Kitty & Bear"
-                className="w-12 h-10 object-cover rounded-xl mix-blend-multiply"
+                className="w-20 h-14 object-contain rounded-xl mix-blend-multiply"
               />
               <div>
-                <h1 className="font-display text-xl font-bold text-[#8E2B4B] leading-tight">
+                <h1 className="font-display text-xl sm:text-2xl font-bold text-[#8E2B4B] leading-tight">
                   Kitty &amp; Bear <span className="text-[#D46A8A]">♡</span>
                 </h1>
                 <p className="font-editorial italic text-xs text-[#7E4D5E]">
-                  {theme.subtitle} · Compact sheet view
+                  {theme.subtitle}
                 </p>
               </div>
             </div>
@@ -640,8 +640,17 @@ export default function App() {
                 className="inline-flex items-center gap-1.5 rounded-full bg-white/90 border border-[#E8C0CE] px-3 py-1.5 text-xs font-bold text-[#7E4D5E] hover:bg-white transition cursor-pointer"
               >
                 <span className={`w-2 h-2 rounded-full ${syncCfg.endpointUrl ? 'bg-[#34A86B]' : 'bg-[#D99AB0]'}`} />
-                {syncCfg.endpointUrl ? 'Synced' : 'Sheet Sync'}
+                {syncCfg.endpointUrl ? 'Live Sync' : 'Sheet Sync'}
               </button>
+              {syncCfg.endpointUrl && (
+                <button
+                  onClick={handleManualRefresh}
+                  className="rounded-full bg-white/90 border border-[#E8C0CE] p-1.5 text-[#7E4D5E] hover:bg-white transition cursor-pointer"
+                  title="Refresh from Google Sheet"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+                </button>
+              )}
               <a
                 href={data.spreadsheetUrl}
                 target="_blank"
