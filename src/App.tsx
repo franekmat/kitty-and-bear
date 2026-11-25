@@ -622,6 +622,12 @@ export default function App() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <a
+                href="https://love.franekmat.com/"
+                className="inline-flex items-center gap-1 rounded-full bg-white border border-[#E5B4C5] px-3 py-1.5 text-xs font-bold text-[#9E3355] hover:bg-[#FFF5F8] transition"
+              >
+                ♡ Home
+              </a>
               <div className="inline-flex rounded-full bg-white border-2 border-[#DFAAC0] p-0.5 text-xs font-extrabold shadow-2xs">
                 <button
                   onClick={() => setViewMode('cards')}
@@ -796,6 +802,13 @@ export default function App() {
                     <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
                   </button>
                 )}
+
+                <a
+                  href="https://love.franekmat.com/"
+                  className="inline-flex items-center gap-1 rounded-full bg-white border border-[#E5B4C5] px-3.5 py-2.5 text-xs font-bold text-[#9E3355] hover:bg-[#FFF5F8] transition"
+                >
+                  ♡ Home
+                </a>
 
                 <a
                   href={data.spreadsheetUrl}
