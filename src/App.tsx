@@ -192,7 +192,7 @@ export default function App() {
   const [data, setData] = useState<AppData>(() => loadLocalData());
   const [syncCfg, setSyncCfg] = useState<SyncConfig>(() => loadSyncConfig());
   const [section, setSection] = useState<SectionKey>('restaurants');
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [syncing, setSyncing] = useState(false);
   const [syncState, setSyncState] = useState<'idle' | 'ok' | 'error'>('idle');
   const [syncError, setSyncError] = useState<string | null>(null);
