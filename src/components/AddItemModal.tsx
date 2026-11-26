@@ -347,24 +347,41 @@ export const AddItemModal: React.FC<Props> = ({ section, syncCfg, onClose, onSub
                 </button>
               </div>
               {detectedProvider === 'openai' && (
-                <div className="flex items-center gap-2">
-                  <label className="text-[11px] font-bold text-[#8C6272] shrink-0">
-                    OpenAI model:
-                  </label>
-                  <select
-                    value={openAiModel}
-                    onChange={(e) => {
-                      setOpenAiModel(e.target.value);
-                      saveOpenAiModel(e.target.value);
-                    }}
-                    className="flex-1 rounded-lg border border-[#E6C3D0] bg-white px-2.5 py-1 text-xs text-[#4A2C38]"
-                  >
-                    {OPENAI_MODELS.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <label className="text-[11px] font-bold text-[#8C6272] shrink-0">
+                      OpenAI model:
+                    </label>
+                    <select
+                      value={
+                        OPENAI_MODELS.some((m) => m.id === openAiModel) ? openAiModel : '__custom__'
+                      }
+                      onChange={(e) => {
+                        const v = e.target.value === '__custom__' ? '' : e.target.value;
+                        setOpenAiModel(v);
+                        if (v) saveOpenAiModel(v);
+                      }}
+                      className="flex-1 rounded-lg border border-[#E6C3D0] bg-white px-2.5 py-1 text-xs text-[#4A2C38]"
+                    >
+                      {OPENAI_MODELS.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                      <option value="__custom__">Custom model ID…</option>
+                    </select>
+                  </div>
+                  {!OPENAI_MODELS.some((m) => m.id === openAiModel) && (
+                    <input
+                      value={openAiModel}
+                      onChange={(e) => {
+                        setOpenAiModel(e.target.value);
+                        saveOpenAiModel(e.target.value);
+                      }}
+                      placeholder="Type any OpenAI model ID, e.g. gpt-6.2-astra"
+                      className="w-full rounded-lg border border-[#E6C3D0] bg-white px-2.5 py-1 text-xs text-[#4A2C38]"
+                    />
+                  )}
                 </div>
               )}
               <p className="text-[11px] text-[#8C6272]">

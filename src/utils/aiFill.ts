@@ -2,15 +2,18 @@ import type { SectionKey, SyncConfig } from '../types';
 
 const STORAGE_AI_KEY = 'kitty_bear_ai_key_v1';
 const LEGACY_GEMINI_KEY = 'kitty_bear_gemini_key_v1';
-const STORAGE_OPENAI_MODEL = 'kitty_bear_openai_model_v1';
+const STORAGE_OPENAI_MODEL = 'kitty_bear_openai_model_v2';
 
 export type AiProvider = 'openai' | 'gemini' | 'none';
 
 export const OPENAI_MODELS = [
-  { id: 'gpt-4.1-mini', label: 'gpt-4.1-mini (fast + web search)' },
-  { id: 'gpt-4.1', label: 'gpt-4.1 (highest detail + web search)' },
-  { id: 'gpt-4o-mini', label: 'gpt-4o-mini (budget + web search)' },
+  { id: 'gpt-6.2-sol', label: 'GPT-6.2 Sol (recommended · fast + web search)' },
+  { id: 'gpt-6.2-astra', label: 'GPT-6.2 Astra (flagship · deep research)' },
+  { id: 'gpt-6.1-terra', label: 'GPT-6.1 Terra' },
+  { id: 'gpt-6-luna', label: 'GPT-6 Luna (ultra-fast)' },
 ] as const;
+
+export const DEFAULT_OPENAI_MODEL = 'gpt-6.2-sol';
 
 export function detectProvider(key: string): AiProvider {
   const clean = key.trim();
@@ -39,9 +42,9 @@ export function saveAiKey(key: string) {
 
 export function loadOpenAiModel(): string {
   try {
-    return localStorage.getItem(STORAGE_OPENAI_MODEL) || 'gpt-4.1-mini';
+    return localStorage.getItem(STORAGE_OPENAI_MODEL) || DEFAULT_OPENAI_MODEL;
   } catch {
-    return 'gpt-4.1-mini';
+    return DEFAULT_OPENAI_MODEL;
   }
 }
 
@@ -167,7 +170,9 @@ function extractOpenAiResponseText(json: Record<string, unknown>): string {
 }
 
 async function callOpenAi(apiKey: string, prompt: string, model: string): Promise<Record<string, unknown>> {
-  // Prefer OpenAI Responses API with live web_search_preview so London venues/prices/ratings are fresh
+  const targetModel = model.trim() || DEFAULT_OPENAI_MODEL;
+
+  // Use OpenAI Responses API with native web_search so London venues/prices/ratings are fresh
   const res = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
@@ -175,8 +180,8 @@ async function callOpenAi(apiKey: string, prompt: string, model: string): Promis
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model,
-      tools: [{ type: 'web_search_preview' }],
+      model: targetModel,
+      tools: [{ type: 'web_search' }],
       input: prompt,
     }),
   });
@@ -188,30 +193,27 @@ async function callOpenAi(apiKey: string, prompt: string, model: string): Promis
     return extractJson(text);
   }
 
-  // Fallback to standard Chat Completions if web_search_preview is unavailable for the selected model/account
-  if (res.status === 400 || res.status === 404) {
-    const fallbackRes = await fetch('https://api.openai.com/v1/chat/completions', {
+  // Fallback to Responses API without web_search if the chosen model/tier doesn't support it
+  if (res.status === 400) {
+    const fallbackRes = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model,
-        response_format: { type: 'json_object' },
-        messages: [{ role: 'user', content: prompt }],
+        model: targetModel,
+        input: prompt,
       }),
     });
-    if (!fallbackRes.ok) {
-      const errTxt = await fallbackRes.text();
-      throw new Error(`OpenAI API error (${fallbackRes.status}): ${errTxt.slice(0, 180)}`);
+    if (fallbackRes.ok) {
+      const json = (await fallbackRes.json()) as Record<string, unknown>;
+      const text = extractOpenAiResponseText(json);
+      if (!text) throw new Error('OpenAI returned an empty response');
+      return extractJson(text);
     }
-    const fallbackJson = (await fallbackRes.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const text = fallbackJson.choices?.[0]?.message?.content || '';
-    if (!text) throw new Error('OpenAI returned an empty response');
-    return extractJson(text);
+    const errTxt = await fallbackRes.text();
+    throw new Error(`OpenAI API error (${fallbackRes.status}): ${errTxt.slice(0, 180)}`);
   }
 
   const errTxt = await res.text();
