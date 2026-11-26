@@ -1,7 +1,15 @@
 import React, { useState } from 'react';
 import { X, Plus, Sparkles, KeyRound, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { SectionKey, SyncConfig } from '../types';
-import { aiFillEmptyFields, loadGeminiKey, saveGeminiKey } from '../utils/aiFill';
+import {
+  OPENAI_MODELS,
+  aiFillEmptyFields,
+  detectProvider,
+  loadAiKey,
+  loadOpenAiModel,
+  saveAiKey,
+  saveOpenAiModel,
+} from '../utils/aiFill';
 
 interface Props {
   section: SectionKey;
@@ -16,9 +24,11 @@ export const AddItemModal: React.FC<Props> = ({ section, syncCfg, onClose, onSub
   const [saving, setSaving] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [autoFillOnSave, setAutoFillOnSave] = useState(true);
-  const [geminiKey, setGeminiKey] = useState(() => loadGeminiKey());
+  const [apiKey, setApiKey] = useState(() => loadAiKey());
+  const [openAiModel, setOpenAiModel] = useState(() => loadOpenAiModel());
   const [showKeyBox, setShowKeyBox] = useState(false);
   const [aiStatus, setAiStatus] = useState<{ type: 'ok' | 'info' | 'err'; text: string } | null>(null);
+  const detectedProvider = detectProvider(apiKey);
 
   // Fields (intentionally blank by default so AI auto-fill knows what's empty!)
   const [name, setName] = useState('');
@@ -60,7 +70,13 @@ export const AddItemModal: React.FC<Props> = ({ section, syncCfg, onClose, onSub
         linkUrl,
         notes,
       };
-      const filled = await aiFillEmptyFields(section, current, syncCfg, geminiKey);
+      const { data: filled, provider } = await aiFillEmptyFields(
+        section,
+        current,
+        syncCfg,
+        apiKey,
+        openAiModel
+      );
 
       // Apply ONLY to currently empty fields (never overwrite user input!)
       if (section === 'restaurants') {
@@ -110,7 +126,7 @@ export const AddItemModal: React.FC<Props> = ({ section, syncCfg, onClose, onSub
         if (!notes && filled.notes) setNotes(String(filled.notes));
       }
 
-      setAiStatus({ type: 'ok', text: 'Filled empty fields with Gemini AI ♡ Review or tweak below!' });
+      setAiStatus({ type: 'ok', text: `Filled empty fields with ${provider} ♡ Review or tweak below!` });
       return filled;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -118,7 +134,7 @@ export const AddItemModal: React.FC<Props> = ({ section, syncCfg, onClose, onSub
         setShowKeyBox(true);
         setAiStatus({
           type: 'info',
-          text: 'Add a free Gemini API key below for instant AI fill—or just hit Add and we’ll tag it “✨ Pending AI fill” for your assistant!',
+          text: 'Paste your OpenAI (sk-...) or Gemini (AIza...) API key below for instant AI fill — saved only in this browser.',
         });
       } else {
         setAiStatus({ type: 'err', text: msg });
@@ -140,18 +156,20 @@ export const AddItemModal: React.FC<Props> = ({ section, syncCfg, onClose, onSub
       let pendingTag = '';
 
       if (autoFillOnSave && hasEmpty) {
-        if (geminiKey.trim()) {
+        if (apiKey.trim()) {
           const filled = await runAiFill();
           if (filled) ai = filled;
         } else {
           // Try Apps Script server-side AI fill silently; if not configured, tag pending
           try {
-            ai = await aiFillEmptyFields(
+            const res = await aiFillEmptyFields(
               section,
               { name: name.trim(), category, area, travel, budget, extra3, notes },
               syncCfg,
-              ''
+              '',
+              openAiModel
             );
+            ai = res.data;
           } catch {
             pendingTag = '✨ Pending AI fill';
           }
@@ -289,24 +307,35 @@ export const AddItemModal: React.FC<Props> = ({ section, syncCfg, onClose, onSub
               className="inline-flex items-center gap-1 text-[11px] font-bold text-[#8E5AA6] hover:underline cursor-pointer"
             >
               <KeyRound className="w-3 h-3" />
-              {geminiKey ? 'AI key saved ✓' : 'Set Gemini API key'}
+              {detectedProvider === 'openai'
+                ? 'OpenAI key saved ✓'
+                : detectedProvider === 'gemini'
+                  ? 'Gemini key saved ✓'
+                  : 'Set OpenAI / Gemini key'}
             </button>
           </div>
 
           {showKeyBox && (
-            <div className="rounded-2xl bg-[#FFF8FB] border border-[#EBCAD7] p-3.5 space-y-2 text-xs">
-              <p className="font-bold text-[#8E3554]">
-                Gemini API Key (saved only in this browser for instant ✨ AI fill):
-              </p>
+            <div className="rounded-2xl bg-[#FFF8FB] border border-[#EBCAD7] p-3.5 space-y-2.5 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-bold text-[#8E3554]">
+                  OpenAI or Gemini API Key (stored only in this browser):
+                </p>
+                {detectedProvider !== 'none' && (
+                  <span className="rounded-full bg-[#E5F6EC] text-[#286B4E] px-2 py-0.5 text-[10px] font-extrabold uppercase">
+                    {detectedProvider === 'openai' ? 'OpenAI detected' : 'Gemini detected'}
+                  </span>
+                )}
+              </div>
               <div className="flex gap-2">
                 <input
                   type="password"
-                  value={geminiKey}
+                  value={apiKey}
                   onChange={(e) => {
-                    setGeminiKey(e.target.value);
-                    saveGeminiKey(e.target.value);
+                    setApiKey(e.target.value);
+                    saveAiKey(e.target.value);
                   }}
-                  placeholder="AIza..."
+                  placeholder="sk-... (OpenAI) or AIza... (Gemini)"
                   className="flex-1 rounded-xl border border-[#E6C3D0] bg-white px-3 py-1.5 text-xs"
                 />
                 <button
@@ -317,18 +346,47 @@ export const AddItemModal: React.FC<Props> = ({ section, syncCfg, onClose, onSub
                   Done
                 </button>
               </div>
+              {detectedProvider === 'openai' && (
+                <div className="flex items-center gap-2">
+                  <label className="text-[11px] font-bold text-[#8C6272] shrink-0">
+                    OpenAI model:
+                  </label>
+                  <select
+                    value={openAiModel}
+                    onChange={(e) => {
+                      setOpenAiModel(e.target.value);
+                      saveOpenAiModel(e.target.value);
+                    }}
+                    className="flex-1 rounded-lg border border-[#E6C3D0] bg-white px-2.5 py-1 text-xs text-[#4A2C38]"
+                  >
+                    {OPENAI_MODELS.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <p className="text-[11px] text-[#8C6272]">
-                Free key from{' '}
+                Paste an{' '}
+                <a
+                  href="https://platform.openai.com/api-keys"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline font-bold text-[#9E3355]"
+                >
+                  OpenAI key
+                </a>{' '}
+                (<code className="bg-white px-1 rounded">sk-...</code> — uses live web search) or a{' '}
                 <a
                   href="https://aistudio.google.com/apikey"
                   target="_blank"
                   rel="noreferrer"
                   className="underline font-bold text-[#9E3355]"
                 >
-                  Google AI Studio
+                  Gemini key
                 </a>{' '}
-                (or add <code className="bg-white px-1 rounded">GEMINI_API_KEY</code> inside your
-                Google Apps Script so both phones share it!).
+                (<code className="bg-white px-1 rounded">AIza...</code>).
               </p>
             </div>
           )}
@@ -586,7 +644,7 @@ export const AddItemModal: React.FC<Props> = ({ section, syncCfg, onClose, onSub
                   <option value="">✨ AI fills</option>
                   {(section === 'winter'
                     ? ['Must-have', 'Nice to have', 'Maybe']
-                    : ['Essential', 'Soon', 'Cosy extra']
+                    : ['Essential', 'Soon', 'Useful', 'Nice to have', 'Not sure']
                   ).map((o) => (
                     <option key={o}>{o}</option>
                   ))}

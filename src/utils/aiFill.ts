@@ -1,19 +1,56 @@
 import type { SectionKey, SyncConfig } from '../types';
 
-const STORAGE_GEMINI_KEY = 'kitty_bear_gemini_key_v1';
+const STORAGE_AI_KEY = 'kitty_bear_ai_key_v1';
+const LEGACY_GEMINI_KEY = 'kitty_bear_gemini_key_v1';
+const STORAGE_OPENAI_MODEL = 'kitty_bear_openai_model_v1';
 
-export function loadGeminiKey(): string {
+export type AiProvider = 'openai' | 'gemini' | 'none';
+
+export const OPENAI_MODELS = [
+  { id: 'gpt-4.1-mini', label: 'gpt-4.1-mini (fast + web search)' },
+  { id: 'gpt-4.1', label: 'gpt-4.1 (highest detail + web search)' },
+  { id: 'gpt-4o-mini', label: 'gpt-4o-mini (budget + web search)' },
+] as const;
+
+export function detectProvider(key: string): AiProvider {
+  const clean = key.trim();
+  if (!clean) return 'none';
+  if (clean.startsWith('sk-')) return 'openai';
+  return 'gemini';
+}
+
+export function loadAiKey(): string {
   try {
-    return localStorage.getItem(STORAGE_GEMINI_KEY) || '';
+    return localStorage.getItem(STORAGE_AI_KEY) || localStorage.getItem(LEGACY_GEMINI_KEY) || '';
   } catch {
     return '';
   }
 }
 
-export function saveGeminiKey(key: string) {
+export function saveAiKey(key: string) {
   const clean = key.trim();
-  if (clean) localStorage.setItem(STORAGE_GEMINI_KEY, clean);
-  else localStorage.removeItem(STORAGE_GEMINI_KEY);
+  if (clean) {
+    localStorage.setItem(STORAGE_AI_KEY, clean);
+  } else {
+    localStorage.removeItem(STORAGE_AI_KEY);
+    localStorage.removeItem(LEGACY_GEMINI_KEY);
+  }
+}
+
+export function loadOpenAiModel(): string {
+  try {
+    return localStorage.getItem(STORAGE_OPENAI_MODEL) || 'gpt-4.1-mini';
+  } catch {
+    return 'gpt-4.1-mini';
+  }
+}
+
+export function saveOpenAiModel(model: string) {
+  try {
+    localStorage.setItem(STORAGE_OPENAI_MODEL, model);
+  } catch {
+    // ignore
+  }
 }
 
 function buildPrompt(section: SectionKey, current: Record<string, unknown>): string {
@@ -89,7 +126,7 @@ Return JSON with keys:
 {
   "room": "one of: Kitchen | Bedroom | Bathroom | Living room | Hallway / storage | Whole flat | Other",
   "when": "one of: Before move-in | First week | First month | Later",
-  "priority": "one of: Essential | Soon | Cosy extra",
+  "priority": "one of: Essential | Soon | Useful | Nice to have | Not sure",
   "budget": integer realistic UK GBP estimate (or null),
   "store": "suggested UK store e.g. IKEA / John Lewis / Argos / Amazon",
   "details": "practical size/spec tip for a compact 2-person London flat",
@@ -110,48 +147,131 @@ function extractJson(text: string): Record<string, unknown> {
   return JSON.parse(cleaned.slice(start, end + 1)) as Record<string, unknown>;
 }
 
+function extractOpenAiResponseText(json: Record<string, unknown>): string {
+  if (typeof json.output_text === 'string' && json.output_text.trim()) {
+    return json.output_text;
+  }
+  const output = Array.isArray(json.output) ? json.output : [];
+  const parts: string[] = [];
+  for (const item of output) {
+    const rec = item as { type?: string; content?: Array<{ type?: string; text?: string }> };
+    if (rec.type === 'message' && Array.isArray(rec.content)) {
+      for (const c of rec.content) {
+        if ((c.type === 'output_text' || c.type === 'text') && typeof c.text === 'string') {
+          parts.push(c.text);
+        }
+      }
+    }
+  }
+  return parts.join('\n').trim();
+}
+
+async function callOpenAi(apiKey: string, prompt: string, model: string): Promise<Record<string, unknown>> {
+  // Prefer OpenAI Responses API with live web_search_preview so London venues/prices/ratings are fresh
+  const res = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      tools: [{ type: 'web_search_preview' }],
+      input: prompt,
+    }),
+  });
+
+  if (res.ok) {
+    const json = (await res.json()) as Record<string, unknown>;
+    const text = extractOpenAiResponseText(json);
+    if (!text) throw new Error('OpenAI returned an empty response');
+    return extractJson(text);
+  }
+
+  // Fallback to standard Chat Completions if web_search_preview is unavailable for the selected model/account
+  if (res.status === 400 || res.status === 404) {
+    const fallbackRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        response_format: { type: 'json_object' },
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    if (!fallbackRes.ok) {
+      const errTxt = await fallbackRes.text();
+      throw new Error(`OpenAI API error (${fallbackRes.status}): ${errTxt.slice(0, 180)}`);
+    }
+    const fallbackJson = (await fallbackRes.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const text = fallbackJson.choices?.[0]?.message?.content || '';
+    if (!text) throw new Error('OpenAI returned an empty response');
+    return extractJson(text);
+  }
+
+  const errTxt = await res.text();
+  throw new Error(`OpenAI API error (${res.status}): ${errTxt.slice(0, 180)}`);
+}
+
+async function callGemini(apiKey: string, prompt: string): Promise<Record<string, unknown>> {
+  const res = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
+    },
+    body: JSON.stringify({
+      model: 'gemini-3.8-flash',
+      tools: [{ type: 'google_search' }],
+      input: prompt,
+    }),
+  });
+
+  if (!res.ok) {
+    const errTxt = await res.text();
+    throw new Error(`Gemini API error (${res.status}): ${errTxt.slice(0, 180)}`);
+  }
+
+  const json = await res.json();
+  const outputs: Array<{ type?: string; text?: string }> = json.outputs || [];
+  const text =
+    json.output_text ||
+    outputs
+      .filter((o) => o.type === 'text' && o.text)
+      .map((o) => o.text)
+      .join('\n');
+
+  if (!text) throw new Error('Gemini returned an empty response');
+  return extractJson(text);
+}
+
 export async function aiFillEmptyFields(
   section: SectionKey,
   current: Record<string, unknown>,
   syncCfg: SyncConfig,
-  browserApiKey: string
-): Promise<Record<string, unknown>> {
+  browserApiKey: string,
+  openAiModel = loadOpenAiModel()
+): Promise<{ data: Record<string, unknown>; provider: string }> {
   const prompt = buildPrompt(section, current);
+  const key = browserApiKey.trim();
 
-  // Path 1: Browser-stored Gemini API key (Gemini 3.8 Flash + Google Search grounding)
-  if (browserApiKey.trim()) {
-    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': browserApiKey.trim(),
-      },
-      body: JSON.stringify({
-        model: 'gemini-3.8-flash',
-        tools: [{ type: 'google_search' }],
-        input: prompt,
-      }),
-    });
-
-    if (!res.ok) {
-      const errTxt = await res.text();
-      throw new Error(`Gemini API error (${res.status}): ${errTxt.slice(0, 160)}`);
+  // Path 1: Browser-stored OpenAI (sk-...) or Gemini (AIza...) key
+  if (key) {
+    const provider = detectProvider(key);
+    if (provider === 'openai') {
+      const data = await callOpenAi(key, prompt, openAiModel);
+      return { data, provider: `OpenAI (${openAiModel})` };
     }
-
-    const json = await res.json();
-    const outputs: Array<{ type?: string; text?: string }> = json.outputs || [];
-    const text =
-      json.output_text ||
-      outputs
-        .filter((o) => o.type === 'text' && o.text)
-        .map((o) => o.text)
-        .join('\n');
-
-    if (!text) throw new Error('Gemini returned an empty response');
-    return extractJson(text);
+    const data = await callGemini(key, prompt);
+    return { data, provider: 'Gemini' };
   }
 
-  // Path 2: Server-side Apps Script AI Fill (if GEMINI_API_KEY is set inside Code.gs)
+  // Path 2: Server-side Apps Script AI Fill (if key is set inside Code.gs)
   if (syncCfg.endpointUrl) {
     const res = await fetch(syncCfg.endpointUrl, {
       method: 'POST',
@@ -162,11 +282,14 @@ export async function aiFillEmptyFields(
         prompt,
       }),
     });
-    const json = await res.json();
-    if (json.ok && json.text) {
-      return extractJson(String(json.text));
+    const text = await res.text();
+    if (res.ok && !text.trimStart().startsWith('<')) {
+      const json = JSON.parse(text) as { ok?: boolean; text?: string; error?: string };
+      if (json.ok && json.text) {
+        return { data: extractJson(String(json.text)), provider: 'AI' };
+      }
+      throw new Error(json.error || 'NO_KEY');
     }
-    throw new Error(json.error || 'No Gemini API key configured');
   }
 
   throw new Error('NO_KEY');
