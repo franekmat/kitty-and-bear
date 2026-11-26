@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
-import { X, Plus, Sparkles, KeyRound, CheckCircle2, AlertCircle } from 'lucide-react';
-import type { SectionKey, SyncConfig } from '../types';
+import { X, Plus, Sparkles, KeyRound, CheckCircle2, AlertCircle, Save, Trash2 } from 'lucide-react';
+import type {
+  DateIdeaItem,
+  HomeItem,
+  RestaurantItem,
+  SectionKey,
+  SyncConfig,
+  WinterItem,
+} from '../types';
 import {
   OPENAI_MODELS,
   aiFillEmptyFields,
@@ -10,6 +17,8 @@ import {
   saveAiKey,
   saveOpenAiModel,
 } from '../utils/aiFill';
+
+export type EditableItem = RestaurantItem | DateIdeaItem | WinterItem | HomeItem;
 
 export interface BackgroundAddDraft {
   name: string;
@@ -35,46 +44,158 @@ export interface BackgroundAddDraft {
 interface Props {
   section: SectionKey;
   syncCfg: SyncConfig;
+  initialItem?: EditableItem | null;
   onClose: () => void;
   onSubmit: (section: SectionKey, payload: Record<string, unknown>) => Promise<void>;
   onBackgroundAiAdd: (section: SectionKey, draft: BackgroundAddDraft) => void;
+  onDelete?: (section: SectionKey, item: EditableItem) => Promise<void>;
 }
 
 const AI_PH = '✨ Leave empty → auto-fill with AI';
 
+function initFields(section: SectionKey, item?: EditableItem | null) {
+  if (!item) {
+    return {
+      name: '',
+      category: '',
+      subType: '',
+      area: '',
+      travel: '',
+      romance: '',
+      budget: '',
+      extra1: '',
+      extra2: '',
+      extra3: '',
+      who: section === 'winter' ? 'Kitty' : 'Together',
+      status: section === 'winter' ? 'To browse' : 'Idea',
+      linkUrl: '',
+      linkLabel: '',
+      notes: '',
+      rating: '',
+    };
+  }
+  if (section === 'restaurants') {
+    const r = item as RestaurantItem;
+    return {
+      name: r.name || '',
+      category: r.cuisine || '',
+      subType: '',
+      area: r.area || '',
+      travel: r.travel || '',
+      romance: r.romance ? String(r.romance) : '',
+      budget: r.budget !== null ? String(r.budget) : '',
+      extra1: r.occasion || '',
+      extra2: r.booking || '',
+      extra3: r.mustTry || '',
+      who: 'Together',
+      status: r.status || 'Idea',
+      linkUrl: r.linkUrl || '',
+      linkLabel: r.linkLabel || '',
+      notes: r.notes || '',
+      rating: r.rating !== null ? String(r.rating) : '',
+    };
+  }
+  if (section === 'dates') {
+    const d = item as DateIdeaItem;
+    return {
+      name: d.name || '',
+      category: d.kind || '',
+      subType: '',
+      area: d.area || '',
+      travel: d.travel || '',
+      romance: d.romance ? String(d.romance) : '',
+      budget: d.budget !== null ? String(d.budget) : '',
+      extra1: d.timeNeeded || '',
+      extra2: d.setting || '',
+      extra3: d.bestMoment || '',
+      who: 'Together',
+      status: d.status || 'Idea',
+      linkUrl: d.linkUrl || '',
+      linkLabel: d.linkLabel || '',
+      notes: d.notes || '',
+      rating: d.rating !== null ? String(d.rating) : '',
+    };
+  }
+  if (section === 'winter') {
+    const w = item as WinterItem;
+    return {
+      name: w.storeOrPiece || '',
+      category: w.item || '',
+      subType: w.entryType || '',
+      area: w.area || '',
+      travel: '',
+      romance: '',
+      budget: w.price !== null ? String(w.price) : '',
+      extra1: '',
+      extra2: w.priority || '',
+      extra3: w.requirements || '',
+      who: w.forWho || 'Kitty',
+      status: w.status || 'To browse',
+      linkUrl: w.linkUrl || '',
+      linkLabel: w.linkLabel || '',
+      notes: w.notes || '',
+      rating: '',
+    };
+  }
+  const h = item as HomeItem;
+  return {
+    name: h.item || '',
+    category: h.room || '',
+    subType: h.when || '',
+    area: '',
+    travel: '',
+    romance: '',
+    budget: h.budget !== null ? String(h.budget) : '',
+    extra1: h.store || '',
+    extra2: h.priority || '',
+    extra3: h.details || '',
+    who: h.who || 'Together',
+    status: h.status || 'Idea',
+    linkUrl: h.linkUrl || '',
+    linkLabel: h.linkLabel || '',
+    notes: h.notes || '',
+    rating: '',
+  };
+}
+
 export const AddItemModal: React.FC<Props> = ({
   section,
   syncCfg,
+  initialItem,
   onClose,
   onSubmit,
   onBackgroundAiAdd,
+  onDelete,
 }) => {
+  const isEditing = Boolean(initialItem);
+  const init = initFields(section, initialItem);
+
   const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
-  const [autoFillOnSave, setAutoFillOnSave] = useState(true);
+  const [autoFillOnSave, setAutoFillOnSave] = useState(!isEditing);
   const [apiKey, setApiKey] = useState(() => loadAiKey());
   const [openAiModel, setOpenAiModel] = useState(() => loadOpenAiModel());
   const [showKeyBox, setShowKeyBox] = useState(false);
   const [aiStatus, setAiStatus] = useState<{ type: 'ok' | 'info' | 'err'; text: string } | null>(null);
   const detectedProvider = detectProvider(apiKey);
 
-  // Fields (intentionally blank by default so AI auto-fill knows what's empty!)
-  const [name, setName] = useState('');
-  const [category, setCategory] = useState('');
-  const [subType, setSubType] = useState('');
-  const [area, setArea] = useState('');
-  const [travel, setTravel] = useState('');
-  const [romance, setRomance] = useState<string>('');
-  const [budget, setBudget] = useState('');
-  const [extra1, setExtra1] = useState(''); // Occasion / Time needed / Store
-  const [extra2, setExtra2] = useState(''); // Booking / Setting / Priority
-  const [extra3, setExtra3] = useState(''); // Must-try / Best moment / Requirements / Details
-  const [who, setWho] = useState(section === 'winter' ? 'Kitty' : 'Together');
-  const [status, setStatus] = useState(section === 'winter' ? 'To browse' : 'Idea');
-  const [linkUrl, setLinkUrl] = useState('');
-  const [linkLabel, setLinkLabel] = useState('');
-  const [notes, setNotes] = useState('');
-  const [rating, setRating] = useState('');
+  const [name, setName] = useState(init.name);
+  const [category, setCategory] = useState(init.category);
+  const [subType, setSubType] = useState(init.subType);
+  const [area, setArea] = useState(init.area);
+  const [travel, setTravel] = useState(init.travel);
+  const [romance, setRomance] = useState<string>(init.romance);
+  const [budget, setBudget] = useState(init.budget);
+  const [extra1, setExtra1] = useState(init.extra1);
+  const [extra2, setExtra2] = useState(init.extra2);
+  const [extra3, setExtra3] = useState(init.extra3);
+  const [who, setWho] = useState(init.who);
+  const [status, setStatus] = useState(init.status);
+  const [linkUrl, setLinkUrl] = useState(init.linkUrl);
+  const [linkLabel, setLinkLabel] = useState(init.linkLabel);
+  const [notes, setNotes] = useState(init.notes);
+  const [rating, setRating] = useState(init.rating);
 
   const runAiFill = async (): Promise<Record<string, unknown> | null> => {
     if (!name.trim()) {
@@ -213,7 +334,7 @@ export const AddItemModal: React.FC<Props> = ({
     e.preventDefault();
     if (!name.trim()) return;
     const hasEmpty = !category || !area || !budget || !extra3 || !notes;
-    if (autoFillOnSave && hasEmpty && apiKey.trim()) {
+    if (!isEditing && autoFillOnSave && hasEmpty && apiKey.trim()) {
       triggerBackgroundAiAdd();
       return;
     }
@@ -302,12 +423,19 @@ export const AddItemModal: React.FC<Props> = ({
     }
   };
 
-  const titleMap: Record<SectionKey, string> = {
-    restaurants: 'Add a restaurant ♡',
-    dates: 'Add a date idea ♡',
-    winter: 'Add winter wardrobe item ♡',
-    home: 'Add home item ♡',
-  };
+  const titleMap: Record<SectionKey, string> = isEditing
+    ? {
+        restaurants: 'Edit restaurant ♡',
+        dates: 'Edit date idea ♡',
+        winter: 'Edit winter wardrobe item ♡',
+        home: 'Edit home item ♡',
+      }
+    : {
+        restaurants: 'Add a restaurant ♡',
+        dates: 'Add a date idea ♡',
+        winter: 'Add winter wardrobe item ♡',
+        home: 'Add home item ♡',
+      };
 
   const inputCls =
     'w-full rounded-xl border border-[#E6C3D0] bg-white px-3 py-2 text-sm text-[#4A2C38] placeholder:italic placeholder:text-[#B395A1] focus:outline-none focus:ring-2 focus:ring-[#D87B97]';
@@ -800,17 +928,30 @@ export const AddItemModal: React.FC<Props> = ({
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-[#9E5A72] mb-1">
-              Website / menu / Google Maps link
-            </label>
-            <input
-              type="url"
-              value={linkUrl}
-              onChange={(e) => setLinkUrl(e.target.value)}
-              placeholder="✨ Leave empty → AI finds official menu / site"
-              className={inputCls}
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-[#9E5A72] mb-1">
+                Website / menu / Google Maps link
+              </label>
+              <input
+                type="url"
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+                placeholder="✨ Leave empty → AI finds official menu / site"
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-[#9E5A72] mb-1">
+                Link label
+              </label>
+              <input
+                value={linkLabel}
+                onChange={(e) => setLinkLabel(e.target.value)}
+                placeholder="e.g. Menu · Dishoom"
+                className={inputCls}
+              />
+            </div>
           </div>
 
           <div>
@@ -826,32 +967,77 @@ export const AddItemModal: React.FC<Props> = ({
             />
           </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-full px-4 py-2.5 text-sm font-semibold text-[#8C5366] hover:bg-[#FDEBF0] transition cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={triggerBackgroundAiAdd}
-              disabled={saving || aiLoading || !name.trim()}
-              title="Close popup right away, add the entry immediately, and fill all empty fields with AI in the background"
-              className="inline-flex items-center gap-1.5 rounded-full bg-[#9669A8] hover:bg-[#7E5290] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition disabled:opacity-50 cursor-pointer"
-            >
-              <Sparkles className="w-4 h-4" />
-              Fill with AI &amp; Add
-            </button>
-            <button
-              type="submit"
-              disabled={saving || aiLoading || !name.trim()}
-              className="inline-flex items-center gap-1.5 rounded-full bg-[#C95D7E] px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#B24B6B] transition disabled:opacity-50 cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              {saving ? 'Saving…' : 'Add to list'}
-            </button>
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+            <div>
+              {isEditing && initialItem && onDelete && (
+                confirmDelete ? (
+                  <div className="inline-flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={async () => {
+                        setSaving(true);
+                        try {
+                          await onDelete(section, initialItem);
+                          onClose();
+                        } finally {
+                          setSaving(false);
+                        }
+                      }}
+                      className="rounded-full bg-[#C93B5B] hover:bg-[#AD2D4A] px-3.5 py-2 text-xs font-bold text-white cursor-pointer"
+                    >
+                      Confirm delete
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDelete(false)}
+                      className="text-xs font-semibold text-[#8C5366] hover:underline px-1.5 cursor-pointer"
+                    >
+                      Keep
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(true)}
+                    className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-bold text-[#B3435E] hover:bg-[#FDEBF0] transition cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete
+                  </button>
+                )
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-full px-4 py-2.5 text-sm font-semibold text-[#8C5366] hover:bg-[#FDEBF0] transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              {!isEditing && (
+                <button
+                  type="button"
+                  onClick={triggerBackgroundAiAdd}
+                  disabled={saving || aiLoading || !name.trim()}
+                  title="Close popup right away, add the entry immediately, and fill all empty fields with AI in the background"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-[#9669A8] hover:bg-[#7E5290] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition disabled:opacity-50 cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  Fill with AI &amp; Add
+                </button>
+              )}
+              <button
+                type="submit"
+                disabled={saving || aiLoading || !name.trim()}
+                className="inline-flex items-center gap-1.5 rounded-full bg-[#C95D7E] px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#B24B6B] transition disabled:opacity-50 cursor-pointer"
+              >
+                {isEditing ? <Save className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                {saving ? 'Saving…' : isEditing ? 'Save changes' : 'Add to list'}
+              </button>
+            </div>
           </div>
         </form>
       </div>

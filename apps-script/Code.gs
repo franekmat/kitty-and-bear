@@ -54,6 +54,14 @@ function handleRequest_(e, method) {
       return jsonOut_(addItem_(ss, body.section, body.item));
     }
 
+    if (action === 'updateItem') {
+      return jsonOut_(updateItem_(ss, body.section, body.row, body.item));
+    }
+
+    if (action === 'deleteItem') {
+      return jsonOut_(deleteItem_(ss, body.section, body.row));
+    }
+
     if (action === 'updateStatus') {
       return jsonOut_(updateStatus_(ss, body.section, body.row, body.status));
     }
@@ -266,10 +274,9 @@ function setRichLink_(sh, row, col, label, url) {
   sh.getRange(row, col).setRichTextValue(rt);
 }
 
-function addItem_(ss, section, item) {
+function writeItemRow_(ss, section, row, item) {
   if (section === 'restaurants') {
     const sh = ss.getSheetByName('Restaurants');
-    const row = nextEmptyRow_(sh, 1);
     sh.getRange(row, 1, 1, 13).setValues([[
       item.name || '', item.cuisine || '', item.area || '', item.travel || '',
       item.romance || '', item.budget || '', item.occasion || '', item.booking || 'Not checked',
@@ -281,7 +288,6 @@ function addItem_(ss, section, item) {
   }
   if (section === 'dates') {
     const sh = ss.getSheetByName('Date ideas');
-    const row = nextEmptyRow_(sh, 1);
     sh.getRange(row, 1, 1, 13).setValues([[
       item.name || '', item.kind || '', item.area || '', item.travel || '',
       item.romance || '', item.budget || '', item.timeNeeded || '', item.setting || '',
@@ -293,7 +299,6 @@ function addItem_(ss, section, item) {
   }
   if (section === 'winter') {
     const sh = ss.getSheetByName('Winter wardrobe');
-    const row = nextEmptyRow_(sh, 1);
     sh.getRange(row, 1, 1, 11).setValues([[
       item.item || '', item.entryType || 'Specific item', item.forWho || 'Kitty',
       item.storeOrPiece || '', item.requirements || '', item.price || '',
@@ -305,7 +310,6 @@ function addItem_(ss, section, item) {
   }
   if (section === 'home') {
     const sh = ss.getSheetByName('Our home');
-    const row = nextEmptyRow_(sh, 1);
     sh.getRange(row, 1, 1, 11).setValues([[
       item.item || '', item.room || '', item.when || 'First week',
       item.priority || 'Soon', item.budget || '', item.store || '',
@@ -316,6 +320,39 @@ function addItem_(ss, section, item) {
     return { ok: true, row: row };
   }
   return { ok: false, error: 'Unknown section' };
+}
+
+function addItem_(ss, section, item) {
+  const sheetMap = {
+    restaurants: 'Restaurants',
+    dates: 'Date ideas',
+    winter: 'Winter wardrobe',
+    home: 'Our home',
+  };
+  const name = sheetMap[section];
+  if (!name) return { ok: false, error: 'Unknown section' };
+  const sh = ss.getSheetByName(name);
+  const row = nextEmptyRow_(sh, 1);
+  return writeItemRow_(ss, section, row, item);
+}
+
+function updateItem_(ss, section, row, item) {
+  if (!row || Number(row) < 6) return { ok: false, error: 'Invalid row' };
+  return writeItemRow_(ss, section, Number(row), item);
+}
+
+function deleteItem_(ss, section, row) {
+  const map = {
+    restaurants: ['Restaurants', 13],
+    dates: ['Date ideas', 13],
+    winter: ['Winter wardrobe', 11],
+    home: ['Our home', 11],
+  };
+  const cfg = map[section];
+  if (!cfg || !row || Number(row) < 6) return { ok: false, error: 'Invalid section/row' };
+  const sh = ss.getSheetByName(cfg[0]);
+  sh.getRange(Number(row), 1, 1, cfg[1]).clearContent();
+  return { ok: true };
 }
 
 function updateStatus_(ss, section, row, status) {

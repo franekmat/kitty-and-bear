@@ -19,6 +19,7 @@ import {
   Home as HomeIcon,
   X,
   Check,
+  Pencil,
 } from 'lucide-react';
 import type {
   AppData,
@@ -36,13 +37,15 @@ import {
   loadSyncConfig,
   parseTravelMeta,
   pushAddItem,
+  pushDeleteItem,
+  pushUpdateItem,
   pushUpdateRomance,
   pushUpdateStatus,
   resetLocalData,
   saveLocalData,
   saveSyncConfig,
 } from './utils/sheetSync';
-import { AddItemModal, type BackgroundAddDraft } from './components/AddItemModal';
+import { AddItemModal, type BackgroundAddDraft, type EditableItem } from './components/AddItemModal';
 import { aiFillEmptyFields } from './utils/aiFill';
 import { SyncModal } from './components/SyncModal';
 import { SurpriseModal } from './components/SurpriseModal';
@@ -215,6 +218,7 @@ export default function App() {
 
   // Modals
   const [showAdd, setShowAdd] = useState(false);
+  const [editingItem, setEditingItem] = useState<EditableItem | null>(null);
   const [showSync, setShowSync] = useState(false);
   const [surpriseItem, setSurpriseItem] = useState<RestaurantItem | DateIdeaItem | null>(null);
 
@@ -545,6 +549,46 @@ export default function App() {
       return next;
     });
     notify(res.synced ? 'Added & synced straight to Google Sheet ♡' : 'Added locally (connect Sync to push to Sheet)');
+  };
+
+  // Edit existing item handler
+  const handleUpdateItem = async (sec: SectionKey, payload: Record<string, unknown>) => {
+    if (!editingItem) return;
+    const updatedItem = buildItemFromPayload(sec, editingItem.id, editingItem.row, payload);
+    setData((prev) => {
+      const list = prev[sec] as Array<{ id: string }>;
+      const next = {
+        ...prev,
+        [sec]: list.map((it) => (it.id === editingItem.id ? updatedItem : it)),
+      } as AppData;
+      saveLocalData(next);
+      return next;
+    });
+    if (syncCfg.endpointUrl && editingItem.row) {
+      const res = await pushUpdateItem(syncCfg, sec, editingItem.row, payload);
+      notify(res.synced ? 'Saved edits & synced to Google Sheet ♡' : 'Saved edits locally');
+    } else {
+      notify('Saved edits ♡');
+    }
+  };
+
+  // Delete item handler
+  const handleDeleteItem = async (sec: SectionKey, target: EditableItem) => {
+    setData((prev) => {
+      const list = prev[sec] as Array<{ id: string }>;
+      const next = {
+        ...prev,
+        [sec]: list.filter((it) => it.id !== target.id),
+      } as AppData;
+      saveLocalData(next);
+      return next;
+    });
+    if (syncCfg.endpointUrl && target.row) {
+      const res = await pushDeleteItem(syncCfg, sec, target.row);
+      notify(res.synced ? 'Deleted & synced to Google Sheet' : 'Deleted locally');
+    } else {
+      notify('Deleted from list');
+    }
   };
 
   // Fast fire-and-forget: add immediately & fill empty fields with AI in background
@@ -1378,15 +1422,25 @@ export default function App() {
                         </p>
                       </div>
 
-                      <button
-                        onClick={() => handleCycleStatus('restaurants', r.id, r.status, r.row)}
-                        title="Click to cycle status"
-                        className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-extrabold transition hover:scale-105 cursor-pointer ${statusBadgeStyle(
-                          r.status
-                        )}`}
-                      >
-                        {r.status}
-                      </button>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          onClick={() => setEditingItem(r)}
+                          title="Edit restaurant"
+                          aria-label={`Edit ${r.name}`}
+                          className="rounded-full p-1.5 text-[#A6767C] hover:text-[#6E2C36] hover:bg-[#FDF1EC] transition cursor-pointer"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleCycleStatus('restaurants', r.id, r.status, r.row)}
+                          title="Click to cycle status"
+                          className={`rounded-full border px-2.5 py-1 text-[11px] font-extrabold transition hover:scale-105 cursor-pointer ${statusBadgeStyle(
+                            r.status
+                          )}`}
+                        >
+                          {r.status}
+                        </button>
+                      </div>
                     </div>
 
                     {/* Key metrics row */}
@@ -1508,15 +1562,25 @@ export default function App() {
                         </p>
                       </div>
 
-                      <button
-                        onClick={() => handleCycleStatus('dates', d.id, d.status, d.row)}
-                        title="Click to cycle status"
-                        className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-extrabold transition hover:scale-105 cursor-pointer ${statusBadgeStyle(
-                          d.status
-                        )}`}
-                      >
-                        {d.status}
-                      </button>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          onClick={() => setEditingItem(d)}
+                          title="Edit date idea"
+                          aria-label={`Edit ${d.name}`}
+                          className="rounded-full p-1.5 text-[#A87184] hover:text-[#6B253E] hover:bg-[#FDF0F4] transition cursor-pointer"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleCycleStatus('dates', d.id, d.status, d.row)}
+                          title="Click to cycle status"
+                          className={`rounded-full border px-2.5 py-1 text-[11px] font-extrabold transition hover:scale-105 cursor-pointer ${statusBadgeStyle(
+                            d.status
+                          )}`}
+                        >
+                          {d.status}
+                        </button>
+                      </div>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
@@ -1618,14 +1682,24 @@ export default function App() {
                       )}
                     </div>
 
-                    <button
-                      onClick={() => handleCycleStatus('winter', w.id, w.status, w.row)}
-                      className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-extrabold transition hover:scale-105 cursor-pointer ${statusBadgeStyle(
-                        w.status
-                      )}`}
-                    >
-                      {w.status}
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => setEditingItem(w)}
+                        title="Edit item"
+                        aria-label={`Edit ${w.storeOrPiece}`}
+                        className="rounded-full p-1.5 text-[#9678A6] hover:text-[#59326B] hover:bg-[#F6F0FA] transition cursor-pointer"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleCycleStatus('winter', w.id, w.status, w.row)}
+                        className={`rounded-full border px-2.5 py-1 text-[11px] font-extrabold transition hover:scale-105 cursor-pointer ${statusBadgeStyle(
+                          w.status
+                        )}`}
+                      >
+                        {w.status}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex flex-wrap gap-2 text-xs font-bold">
@@ -1701,14 +1775,24 @@ export default function App() {
                       </h3>
                     </div>
 
-                    <button
-                      onClick={() => handleCycleStatus('home', h.id, h.status, h.row)}
-                      className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-extrabold transition hover:scale-105 cursor-pointer ${statusBadgeStyle(
-                        h.status
-                      )}`}
-                    >
-                      {h.status}
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => setEditingItem(h)}
+                        title="Edit item"
+                        aria-label={`Edit ${h.item}`}
+                        className="rounded-full p-1.5 text-[#6E947E] hover:text-[#2F5940] hover:bg-[#F0F7F2] transition cursor-pointer"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleCycleStatus('home', h.id, h.status, h.row)}
+                        className={`rounded-full border px-2.5 py-1 text-[11px] font-extrabold transition hover:scale-105 cursor-pointer ${statusBadgeStyle(
+                          h.status
+                        )}`}
+                      >
+                        {h.status}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex flex-wrap gap-2 text-xs font-bold">
@@ -1844,7 +1928,18 @@ export default function App() {
                     const tm = TIER_META[r.travelTier];
                     return (
                       <tr key={r.id} className={`${idx % 2 === 1 ? 'bg-[#FFF5F1]' : 'bg-white'} hover:bg-[#FDEEE8]/70 transition`}>
-                        <td className="py-2 px-3 font-bold text-[#6E2C36] whitespace-nowrap">{r.name}</td>
+                        <td className="py-2 px-3 font-bold text-[#6E2C36] whitespace-nowrap">
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              onClick={() => setEditingItem(r)}
+                              title="Edit restaurant"
+                              className="rounded p-0.5 text-[#B58288] hover:text-[#6E2C36] hover:bg-[#FBE7E0] transition cursor-pointer"
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                            <span>{r.name}</span>
+                          </div>
+                        </td>
                         <td className="py-2 px-2.5 whitespace-nowrap text-[#5C3A40]">{r.cuisine}</td>
                         <td className="py-2 px-2.5 whitespace-nowrap text-[#7D5B60]">{r.area}</td>
                         <td className={`py-2 px-2.5 text-[11px] leading-snug min-w-[220px] max-w-[260px] ${tm.bg} ${tm.text}`}>
@@ -1905,7 +2000,18 @@ export default function App() {
                     const tm = TIER_META[d.travelTier];
                     return (
                       <tr key={d.id} className={`${idx % 2 === 1 ? 'bg-[#FFF4F8]' : 'bg-white'} hover:bg-[#FDECF2]/70 transition`}>
-                        <td className="py-2 px-3 font-bold text-[#6B253E] min-w-[170px]">{d.name}</td>
+                        <td className="py-2 px-3 font-bold text-[#6B253E] min-w-[170px]">
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              onClick={() => setEditingItem(d)}
+                              title="Edit date idea"
+                              className="rounded p-0.5 text-[#B57D91] hover:text-[#6B253E] hover:bg-[#FBE4EC] transition cursor-pointer shrink-0"
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                            <span>{d.name}</span>
+                          </div>
+                        </td>
                         <td className="py-2 px-2.5 whitespace-nowrap">{d.kind}</td>
                         <td className="py-2 px-2.5 whitespace-nowrap text-[#7D5B66]">{d.area}</td>
                         <td className={`py-2 px-2.5 text-[11px] leading-snug min-w-[220px] max-w-[260px] ${tm.bg} ${tm.text}`}>
@@ -1964,7 +2070,18 @@ export default function App() {
                 {section === 'winter' &&
                   filteredWinter.map((w, idx) => (
                     <tr key={w.id} className={`${idx % 2 === 1 ? 'bg-[#FAF6FC]' : 'bg-white'} hover:bg-[#F3EAF8]/70 transition`}>
-                      <td className="py-2 px-3 font-bold text-[#59326B] min-w-[160px]">{w.storeOrPiece}</td>
+                      <td className="py-2 px-3 font-bold text-[#59326B] min-w-[160px]">
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            onClick={() => setEditingItem(w)}
+                            title="Edit item"
+                            className="rounded p-0.5 text-[#9D7FAE] hover:text-[#59326B] hover:bg-[#EFE2F7] transition cursor-pointer shrink-0"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                          <span>{w.storeOrPiece}</span>
+                        </div>
+                      </td>
                       <td className="py-2 px-2.5 whitespace-nowrap">
                         <span className="font-bold text-[#59326B]">{w.item}</span>
                         <span className="text-[#886E96]"> · {w.entryType}</span>
@@ -1999,7 +2116,18 @@ export default function App() {
                 {section === 'home' &&
                   filteredHome.map((h, idx) => (
                     <tr key={h.id} className={`${idx % 2 === 1 ? 'bg-[#F5FAF7]' : 'bg-white'} hover:bg-[#EAF4EE]/70 transition`}>
-                      <td className="py-2 px-3 font-bold text-[#2F5940] min-w-[170px]">{h.item}</td>
+                      <td className="py-2 px-3 font-bold text-[#2F5940] min-w-[170px]">
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            onClick={() => setEditingItem(h)}
+                            title="Edit item"
+                            className="rounded p-0.5 text-[#7AA18B] hover:text-[#2F5940] hover:bg-[#E2F1E8] transition cursor-pointer shrink-0"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                          <span>{h.item}</span>
+                        </div>
+                      </td>
                       <td className="py-2 px-2.5 whitespace-nowrap">{h.room || '—'}</td>
                       <td className="py-2 px-2 text-center whitespace-nowrap text-[#9A5A28] font-semibold">{h.when || '—'}</td>
                       <td className="py-2 px-2 text-center whitespace-nowrap">
@@ -2044,6 +2172,19 @@ export default function App() {
           onClose={() => setShowAdd(false)}
           onSubmit={handleAddItem}
           onBackgroundAiAdd={handleBackgroundAiAdd}
+        />
+      )}
+
+      {editingItem && (
+        <AddItemModal
+          key={editingItem.id}
+          section={section}
+          syncCfg={syncCfg}
+          initialItem={editingItem}
+          onClose={() => setEditingItem(null)}
+          onSubmit={handleUpdateItem}
+          onBackgroundAiAdd={handleBackgroundAiAdd}
+          onDelete={handleDeleteItem}
         />
       )}
 

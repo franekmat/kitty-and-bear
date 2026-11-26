@@ -112,6 +112,58 @@ export async function pushAddItem(
   }
 }
 
+export async function pushUpdateItem(
+  cfg: SyncConfig,
+  section: SectionKey,
+  row: number | undefined,
+  item: Record<string, unknown>
+): Promise<{ synced: boolean; error?: string }> {
+  if (!cfg.endpointUrl || !row) return { synced: false };
+  try {
+    const res = await fetch(cfg.endpointUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'updateItem',
+        passcode: cfg.passcode || '',
+        section,
+        row,
+        item,
+      }),
+    });
+    const json = await parseAppsScriptJson(res);
+    if (!json.ok) return { synced: false, error: String(json.error || 'Sync failed') };
+    return { synced: true };
+  } catch (err) {
+    return { synced: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function pushDeleteItem(
+  cfg: SyncConfig,
+  section: SectionKey,
+  row: number | undefined
+): Promise<{ synced: boolean; error?: string }> {
+  if (!cfg.endpointUrl || !row) return { synced: false };
+  try {
+    const res = await fetch(cfg.endpointUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'deleteItem',
+        passcode: cfg.passcode || '',
+        section,
+        row,
+      }),
+    });
+    const json = await parseAppsScriptJson(res);
+    if (!json.ok) return { synced: false, error: String(json.error || 'Sync failed') };
+    return { synced: true };
+  } catch (err) {
+    return { synced: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function pushUpdateStatus(
   cfg: SyncConfig,
   section: SectionKey,
