@@ -14,6 +14,32 @@ export const OPENAI_MODELS = [
 ] as const;
 
 export const DEFAULT_OPENAI_MODEL = 'gpt-6.2-sol';
+export const CLOUD_AI_PROXY_URL = 'https://kitty-dates-ai.franekmat.workers.dev';
+
+export interface CloudAiStatus {
+  configured: boolean;
+  provider: AiProvider;
+}
+
+let cachedCloudStatus: CloudAiStatus | null = null;
+
+export async function checkCloudAiStatus(force = false): Promise<CloudAiStatus> {
+  if (cachedCloudStatus && !force) return cachedCloudStatus;
+  try {
+    const res = await fetch(`${CLOUD_AI_PROXY_URL}/health`, { method: 'GET' });
+    if (res.ok) {
+      const json = (await res.json()) as { configured?: boolean; provider?: AiProvider };
+      cachedCloudStatus = {
+        configured: Boolean(json.configured),
+        provider: json.provider === 'openai' || json.provider === 'gemini' ? json.provider : 'none',
+      };
+      return cachedCloudStatus;
+    }
+  } catch {
+    // ignore network failure
+  }
+  return { configured: false, provider: 'none' };
+}
 
 export function detectProvider(key: string): AiProvider {
   const clean = key.trim();
@@ -262,7 +288,7 @@ export async function aiFillEmptyFields(
   const prompt = buildPrompt(section, current);
   const key = browserApiKey.trim();
 
-  // Path 1: Browser-stored OpenAI (sk-...) or Gemini (AIza...) key
+  // Path 1: Browser-stored OpenAI (sk-...) or Gemini (AIza...) override key
   if (key) {
     const provider = detectProvider(key);
     if (provider === 'openai') {
@@ -273,7 +299,39 @@ export async function aiFillEmptyFields(
     return { data, provider: 'Gemini' };
   }
 
-  // Path 2: Server-side Apps Script AI Fill (if key is set inside Code.gs)
+  // Path 2: Persistent Cloud AI Proxy (Cloudflare Worker with encrypted secret — works on every device!)
+  try {
+    const cloudRes = await fetch(`${CLOUD_AI_PROXY_URL}/ai-fill`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt,
+        model: openAiModel,
+      }),
+    });
+    const cloudJson = (await cloudRes.json()) as {
+      ok?: boolean;
+      text?: string;
+      provider?: string;
+      error?: string;
+    };
+    if (cloudRes.ok && cloudJson.ok && cloudJson.text) {
+      return {
+        data: extractJson(String(cloudJson.text)),
+        provider: `${cloudJson.provider || 'Cloud AI'} · Cloud`,
+      };
+    }
+    if (cloudJson.error && cloudJson.error !== 'NO_KEY') {
+      throw new Error(cloudJson.error);
+    }
+  } catch (err) {
+    // Only rethrow real provider errors; if NO_KEY or offline, fall through to Apps Script / prompt
+    if (err instanceof Error && !err.message.includes('Failed to fetch') && err.message !== 'NO_KEY') {
+      throw err;
+    }
+  }
+
+  // Path 3: Server-side Apps Script AI Fill (if key is set inside Code.gs)
   if (syncCfg.endpointUrl) {
     const res = await fetch(syncCfg.endpointUrl, {
       method: 'POST',

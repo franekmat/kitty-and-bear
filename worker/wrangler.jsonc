@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kitty-dates-ai",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-26",
+  "observability": {
+    "enabled": true,
+    "traces": {
+      "enabled": true
+    }
+  }
+}

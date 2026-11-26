@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Plus, Sparkles, KeyRound, CheckCircle2, AlertCircle, Save, Trash2 } from 'lucide-react';
 import type {
   DateIdeaItem,
@@ -11,11 +11,13 @@ import type {
 import {
   OPENAI_MODELS,
   aiFillEmptyFields,
+  checkCloudAiStatus,
   detectProvider,
   loadAiKey,
   loadOpenAiModel,
   saveAiKey,
   saveOpenAiModel,
+  type CloudAiStatus,
 } from '../utils/aiFill';
 
 export type EditableItem = RestaurantItem | DateIdeaItem | WinterItem | HomeItem;
@@ -178,7 +180,14 @@ export const AddItemModal: React.FC<Props> = ({
   const [openAiModel, setOpenAiModel] = useState(() => loadOpenAiModel());
   const [showKeyBox, setShowKeyBox] = useState(false);
   const [aiStatus, setAiStatus] = useState<{ type: 'ok' | 'info' | 'err'; text: string } | null>(null);
+  const [cloudAi, setCloudAi] = useState<CloudAiStatus>({ configured: false, provider: 'none' });
   const detectedProvider = detectProvider(apiKey);
+  const hasAnyAi = Boolean(apiKey.trim()) || cloudAi.configured;
+  const activeProvider = detectedProvider !== 'none' ? detectedProvider : cloudAi.provider;
+
+  useEffect(() => {
+    checkCloudAiStatus().then(setCloudAi);
+  }, []);
 
   const [name, setName] = useState(init.name);
   const [category, setCategory] = useState(init.category);
@@ -299,7 +308,7 @@ export const AddItemModal: React.FC<Props> = ({
       setAiStatus({ type: 'err', text: 'Type a name first so AI knows what to look up!' });
       return;
     }
-    if (!apiKey.trim() && !syncCfg.endpointUrl) {
+    if (!hasAnyAi && !syncCfg.endpointUrl) {
       setShowKeyBox(true);
       setAiStatus({
         type: 'info',
@@ -334,7 +343,7 @@ export const AddItemModal: React.FC<Props> = ({
     e.preventDefault();
     if (!name.trim()) return;
     const hasEmpty = !category || !area || !budget || !extra3 || !notes;
-    if (!isEditing && autoFillOnSave && hasEmpty && apiKey.trim()) {
+    if (!isEditing && autoFillOnSave && hasEmpty && hasAnyAi) {
       triggerBackgroundAiAdd();
       return;
     }
@@ -473,10 +482,12 @@ export const AddItemModal: React.FC<Props> = ({
             >
               <KeyRound className="w-3 h-3" />
               {detectedProvider === 'openai'
-                ? 'OpenAI key saved ✓'
+                ? 'OpenAI key (local) ✓'
                 : detectedProvider === 'gemini'
-                  ? 'Gemini key saved ✓'
-                  : 'Set OpenAI / Gemini key'}
+                  ? 'Gemini key (local) ✓'
+                  : cloudAi.configured
+                    ? `Cloud ${cloudAi.provider === 'openai' ? 'OpenAI' : 'Gemini'} ready ✓`
+                    : 'Set OpenAI / Gemini key'}
             </button>
           </div>
 
@@ -484,11 +495,19 @@ export const AddItemModal: React.FC<Props> = ({
             <div className="rounded-2xl bg-[#FFF8FB] border border-[#EBCAD7] p-3.5 space-y-2.5 text-xs">
               <div className="flex items-center justify-between gap-2">
                 <p className="font-bold text-[#8E3554]">
-                  OpenAI or Gemini API Key (stored only in this browser):
+                  {cloudAi.configured && !apiKey.trim()
+                    ? 'Cloud AI is active everywhere (optional local override):'
+                    : 'OpenAI or Gemini API Key (optional local override):'}
                 </p>
-                {detectedProvider !== 'none' && (
+                {activeProvider !== 'none' && (
                   <span className="rounded-full bg-[#E5F6EC] text-[#286B4E] px-2 py-0.5 text-[10px] font-extrabold uppercase">
-                    {detectedProvider === 'openai' ? 'OpenAI detected' : 'Gemini detected'}
+                    {detectedProvider !== 'none'
+                      ? detectedProvider === 'openai'
+                        ? 'Local OpenAI'
+                        : 'Local Gemini'
+                      : cloudAi.provider === 'openai'
+                        ? 'Cloud OpenAI'
+                        : 'Cloud Gemini'}
                   </span>
                 )}
               </div>
@@ -500,7 +519,11 @@ export const AddItemModal: React.FC<Props> = ({
                     setApiKey(e.target.value);
                     saveAiKey(e.target.value);
                   }}
-                  placeholder="sk-... (OpenAI) or AIza... (Gemini)"
+                  placeholder={
+                    cloudAi.configured
+                      ? 'Leave empty to use persistent Cloud AI key'
+                      : 'sk-... (OpenAI) or AIza... (Gemini)'
+                  }
                   className="flex-1 rounded-xl border border-[#E6C3D0] bg-white px-3 py-1.5 text-xs"
                 />
                 <button
@@ -511,7 +534,7 @@ export const AddItemModal: React.FC<Props> = ({
                   Done
                 </button>
               </div>
-              {detectedProvider === 'openai' && (
+              {activeProvider === 'openai' && (
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-2">
                     <label className="text-[11px] font-bold text-[#8C6272] shrink-0">
