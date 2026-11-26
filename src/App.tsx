@@ -42,7 +42,8 @@ import {
   saveLocalData,
   saveSyncConfig,
 } from './utils/sheetSync';
-import { AddItemModal } from './components/AddItemModal';
+import { AddItemModal, type BackgroundAddDraft } from './components/AddItemModal';
+import { aiFillEmptyFields } from './utils/aiFill';
 import { SyncModal } from './components/SyncModal';
 import { SurpriseModal } from './components/SurpriseModal';
 
@@ -197,6 +198,7 @@ export default function App() {
   const [syncState, setSyncState] = useState<'idle' | 'ok' | 'error'>('idle');
   const [syncError, setSyncError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [aiFillingIds, setAiFillingIds] = useState<string[]>([]);
 
   // Filters
   const [search, setSearch] = useState('');
@@ -444,16 +446,15 @@ export default function App() {
     }
   };
 
-  // Manual add handler
-  const handleAddItem = async (sec: SectionKey, payload: Record<string, unknown>) => {
-    const res = await pushAddItem(syncCfg, sec, payload);
-    const id = `${sec}-local-${Date.now()}`;
-    const nextRow = res.row;
-
-    let updated = { ...data };
+  const buildItemFromPayload = (
+    sec: SectionKey,
+    id: string,
+    nextRow: number | undefined,
+    payload: Record<string, unknown>
+  ): RestaurantItem | DateIdeaItem | WinterItem | HomeItem => {
     if (sec === 'restaurants') {
       const meta = parseTravelMeta(String(payload.travel || ''));
-      const item: RestaurantItem = {
+      return {
         id,
         row: nextRow,
         name: String(payload.name || ''),
@@ -473,10 +474,10 @@ export default function App() {
         notes: String(payload.notes || ''),
         rating: (payload.rating as number | null) ?? null,
       };
-      updated = { ...data, restaurants: [item, ...data.restaurants] };
-    } else if (sec === 'dates') {
+    }
+    if (sec === 'dates') {
       const meta = parseTravelMeta(String(payload.travel || ''));
-      const item: DateIdeaItem = {
+      return {
         id,
         row: nextRow,
         name: String(payload.name || ''),
@@ -496,9 +497,9 @@ export default function App() {
         notes: String(payload.notes || ''),
         rating: (payload.rating as number | null) ?? null,
       };
-      updated = { ...data, dates: [item, ...data.dates] };
-    } else if (sec === 'winter') {
-      const item: WinterItem = {
+    }
+    if (sec === 'winter') {
+      return {
         id,
         row: nextRow,
         item: String(payload.item || ''),
@@ -514,30 +515,191 @@ export default function App() {
         linkUrl: String(payload.linkUrl || ''),
         notes: String(payload.notes || ''),
       };
-      updated = { ...data, winter: [item, ...data.winter] };
-    } else {
-      const item: HomeItem = {
-        id,
-        row: nextRow,
-        item: String(payload.item || ''),
-        room: String(payload.room || ''),
-        when: String(payload.when || ''),
-        priority: String(payload.priority || ''),
-        budget: (payload.budget as number | null) ?? null,
-        store: String(payload.store || ''),
-        who: String(payload.who || 'Together'),
-        details: String(payload.details || ''),
-        status: String(payload.status || 'Idea'),
-        linkLabel: String(payload.linkLabel || ''),
-        linkUrl: String(payload.linkUrl || ''),
-        notes: String(payload.notes || ''),
-      };
-      updated = { ...data, home: [item, ...data.home] };
     }
+    return {
+      id,
+      row: nextRow,
+      item: String(payload.item || ''),
+      room: String(payload.room || ''),
+      when: String(payload.when || ''),
+      priority: String(payload.priority || ''),
+      budget: (payload.budget as number | null) ?? null,
+      store: String(payload.store || ''),
+      who: String(payload.who || 'Together'),
+      details: String(payload.details || ''),
+      status: String(payload.status || 'Idea'),
+      linkLabel: String(payload.linkLabel || ''),
+      linkUrl: String(payload.linkUrl || ''),
+      notes: String(payload.notes || ''),
+    };
+  };
 
-    setData(updated);
-    saveLocalData(updated);
+  // Manual add handler
+  const handleAddItem = async (sec: SectionKey, payload: Record<string, unknown>) => {
+    const res = await pushAddItem(syncCfg, sec, payload);
+    const id = `${sec}-local-${Date.now()}`;
+    const item = buildItemFromPayload(sec, id, res.row, payload);
+    setData((prev) => {
+      const next = { ...prev, [sec]: [item, ...(prev[sec] as unknown[])] } as AppData;
+      saveLocalData(next);
+      return next;
+    });
     notify(res.synced ? 'Added & synced straight to Google Sheet ♡' : 'Added locally (connect Sync to push to Sheet)');
+  };
+
+  // Fast fire-and-forget: add immediately & fill empty fields with AI in background
+  const handleBackgroundAiAdd = (sec: SectionKey, draft: BackgroundAddDraft) => {
+    const id = `${sec}-local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const pick = (manual: string, aiVal: unknown, fallback = '') =>
+      manual.trim() || (aiVal != null && String(aiVal).trim() ? String(aiVal).trim() : fallback);
+    const pickNum = (manual: string, aiVal: unknown): number | null => {
+      if (manual.trim() && !Number.isNaN(Number(manual))) return Number(manual);
+      if (aiVal != null && !Number.isNaN(Number(aiVal))) return Number(aiVal);
+      return null;
+    };
+
+    const makePayload = (ai: Record<string, unknown>, fallbackNotes: string): Record<string, unknown> => {
+      const finalLinkUrl = pick(draft.linkUrl, ai.linkUrl, '');
+      const finalLinkLabel = pick(
+        draft.linkLabel,
+        ai.linkLabel,
+        finalLinkUrl ? (sec === 'restaurants' ? `Menu · ${draft.name}` : draft.name) : ''
+      );
+      if (sec === 'restaurants') {
+        return {
+          name: draft.name,
+          cuisine: pick(draft.category, ai.cuisine),
+          area: pick(draft.area, ai.area),
+          travel: pick(draft.travel, ai.travel),
+          romance: pickNum(draft.romance, ai.romance) ?? 0,
+          budget: pickNum(draft.budget, ai.budget),
+          occasion: pick(draft.extra1, ai.occasion),
+          booking: pick(draft.extra2, ai.booking, 'Not checked'),
+          mustTry: pick(draft.extra3, ai.mustTry),
+          status: draft.status,
+          linkLabel: finalLinkLabel,
+          linkUrl: finalLinkUrl,
+          notes: pick(draft.notes, ai.notes, fallbackNotes),
+          rating: pickNum(draft.rating, ai.rating),
+        };
+      }
+      if (sec === 'dates') {
+        return {
+          name: draft.name,
+          kind: pick(draft.category, ai.kind, 'Outing'),
+          area: pick(draft.area, ai.area),
+          travel: pick(draft.travel, ai.travel),
+          romance: pickNum(draft.romance, ai.romance) ?? 0,
+          budget: pickNum(draft.budget, ai.budget),
+          timeNeeded: pick(draft.extra1, ai.timeNeeded),
+          setting: pick(draft.extra2, ai.setting, 'Either'),
+          bestMoment: pick(draft.extra3, ai.bestMoment),
+          status: draft.status,
+          linkLabel: finalLinkLabel,
+          linkUrl: finalLinkUrl,
+          notes: pick(draft.notes, ai.notes, fallbackNotes),
+          rating: pickNum(draft.rating, ai.rating),
+        };
+      }
+      if (sec === 'winter') {
+        return {
+          item: pick(draft.category, ai.item, 'Winter jacket'),
+          entryType: pick(draft.subType, ai.entryType, 'Specific item'),
+          forWho: draft.who,
+          storeOrPiece: draft.name,
+          requirements: pick(draft.extra3, ai.requirements),
+          price: pickNum(draft.budget, ai.price),
+          area: pick(draft.area, ai.area),
+          priority: pick(draft.extra2, ai.priority, 'Must-have'),
+          status: draft.status,
+          linkLabel: finalLinkLabel,
+          linkUrl: finalLinkUrl,
+          notes: pick(draft.notes, ai.notes, fallbackNotes),
+        };
+      }
+      return {
+        item: draft.name,
+        room: pick(draft.category, ai.room, 'Other'),
+        when: pick(draft.subType, ai.when, 'First week'),
+        priority: pick(draft.extra2, ai.priority, 'Soon'),
+        budget: pickNum(draft.budget, ai.budget),
+        store: pick(draft.extra1, ai.store),
+        who: draft.who,
+        details: pick(draft.extra3, ai.details),
+        status: draft.status,
+        linkLabel: finalLinkLabel,
+        linkUrl: finalLinkUrl,
+        notes: pick(draft.notes, ai.notes, fallbackNotes),
+      };
+    };
+
+    // 1. Insert optimistic item right away so the user sees it immediately!
+    const optimisticItem = buildItemFromPayload(sec, id, undefined, makePayload({}, '✨ Researching with AI…'));
+    setData((prev) => {
+      const next = { ...prev, [sec]: [optimisticItem, ...(prev[sec] as unknown[])] } as AppData;
+      saveLocalData(next);
+      return next;
+    });
+    setAiFillingIds((prev) => [...prev, id]);
+    notify(`✨ Added “${draft.name}” — filling details in background…`);
+
+    // 2. Run AI research + Google Sheet sync in background
+    (async () => {
+      let ai: Record<string, unknown> = {};
+      let providerLabel = 'AI';
+      let aiErr: string | null = null;
+      try {
+        const res = await aiFillEmptyFields(
+          sec,
+          {
+            name: draft.name,
+            category: draft.category,
+            subType: draft.subType,
+            area: draft.area,
+            travel: draft.travel,
+            romance: draft.romance,
+            budget: draft.budget,
+            extra1: draft.extra1,
+            extra2: draft.extra2,
+            extra3: draft.extra3,
+            linkUrl: draft.linkUrl,
+            notes: draft.notes,
+          },
+          syncCfg,
+          draft.apiKey,
+          draft.openAiModel
+        );
+        ai = res.data;
+        providerLabel = res.provider;
+      } catch (err) {
+        aiErr = err instanceof Error ? err.message : String(err);
+      }
+
+      const finalPayload = makePayload(ai, aiErr ? '' : '');
+      const syncRes = await pushAddItem(syncCfg, sec, finalPayload);
+      const completedItem = buildItemFromPayload(sec, id, syncRes.row, finalPayload);
+
+      setData((prev) => {
+        const list = prev[sec] as Array<{ id: string }>;
+        const next = {
+          ...prev,
+          [sec]: list.map((it) => (it.id === id ? completedItem : it)),
+        } as AppData;
+        saveLocalData(next);
+        return next;
+      });
+      setAiFillingIds((prev) => prev.filter((x) => x !== id));
+
+      if (aiErr) {
+        notify(`Saved “${draft.name}” (AI fill skipped: ${aiErr.slice(0, 70)})`);
+      } else {
+        notify(
+          syncRes.synced
+            ? `✨ Filled “${draft.name}” with ${providerLabel} & synced to Sheet ♡`
+            : `✨ Filled “${draft.name}” with ${providerLabel} ♡`
+        );
+      }
+    })();
   };
 
   const handleSurprise = () => {
@@ -1881,6 +2043,7 @@ export default function App() {
           syncCfg={syncCfg}
           onClose={() => setShowAdd(false)}
           onSubmit={handleAddItem}
+          onBackgroundAiAdd={handleBackgroundAiAdd}
         />
       )}
 
@@ -1918,6 +2081,14 @@ export default function App() {
           onReroll={handleSurprise}
           onClose={() => setSurpriseItem(null)}
         />
+      )}
+
+      {/* Background AI Progress Pill */}
+      {aiFillingIds.length > 0 && (
+        <div className="fixed bottom-5 left-5 z-50 inline-flex items-center gap-2 rounded-full bg-[#6B3E80] text-white px-4 py-2.5 text-xs font-bold shadow-lg">
+          <Sparkles className="w-3.5 h-3.5 animate-spin" />
+          Filling {aiFillingIds.length === 1 ? '1 entry' : `${aiFillingIds.length} entries`} with AI in background…
+        </div>
       )}
 
       {/* Toast */}

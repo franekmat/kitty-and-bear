@@ -11,16 +11,44 @@ import {
   saveOpenAiModel,
 } from '../utils/aiFill';
 
+export interface BackgroundAddDraft {
+  name: string;
+  category: string;
+  subType: string;
+  area: string;
+  travel: string;
+  romance: string;
+  budget: string;
+  extra1: string;
+  extra2: string;
+  extra3: string;
+  who: string;
+  status: string;
+  linkUrl: string;
+  linkLabel: string;
+  notes: string;
+  rating: string;
+  apiKey: string;
+  openAiModel: string;
+}
+
 interface Props {
   section: SectionKey;
   syncCfg: SyncConfig;
   onClose: () => void;
   onSubmit: (section: SectionKey, payload: Record<string, unknown>) => Promise<void>;
+  onBackgroundAiAdd: (section: SectionKey, draft: BackgroundAddDraft) => void;
 }
 
 const AI_PH = '✨ Leave empty → auto-fill with AI';
 
-export const AddItemModal: React.FC<Props> = ({ section, syncCfg, onClose, onSubmit }) => {
+export const AddItemModal: React.FC<Props> = ({
+  section,
+  syncCfg,
+  onClose,
+  onSubmit,
+  onBackgroundAiAdd,
+}) => {
   const [saving, setSaving] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [autoFillOnSave, setAutoFillOnSave] = useState(true);
@@ -145,50 +173,59 @@ export const AddItemModal: React.FC<Props> = ({ section, syncCfg, onClose, onSub
     }
   };
 
+  const triggerBackgroundAiAdd = () => {
+    if (!name.trim()) {
+      setAiStatus({ type: 'err', text: 'Type a name first so AI knows what to look up!' });
+      return;
+    }
+    if (!apiKey.trim() && !syncCfg.endpointUrl) {
+      setShowKeyBox(true);
+      setAiStatus({
+        type: 'info',
+        text: 'Paste your OpenAI (sk-...) or Gemini (AIza...) API key above first so AI can fill in the background!',
+      });
+      return;
+    }
+    onBackgroundAiAdd(section, {
+      name: name.trim(),
+      category,
+      subType,
+      area,
+      travel,
+      romance,
+      budget,
+      extra1,
+      extra2,
+      extra3,
+      who,
+      status,
+      linkUrl,
+      linkLabel,
+      notes,
+      rating,
+      apiKey,
+      openAiModel,
+    });
+    onClose();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+    const hasEmpty = !category || !area || !budget || !extra3 || !notes;
+    if (autoFillOnSave && hasEmpty && apiKey.trim()) {
+      triggerBackgroundAiAdd();
+      return;
+    }
     setSaving(true);
     try {
-      // Check if any key fields are empty and auto-fill with AI if enabled & key present
-      const hasEmpty = !category || !area || !budget || !extra3 || !notes;
-      let ai: Record<string, unknown> = {};
-      let pendingTag = '';
+      const pick = (manual: string, fallback = '') => manual.trim() || fallback;
+      const pickNum = (manual: string): number | null =>
+        manual.trim() && !Number.isNaN(Number(manual)) ? Number(manual) : null;
 
-      if (autoFillOnSave && hasEmpty) {
-        if (apiKey.trim()) {
-          const filled = await runAiFill();
-          if (filled) ai = filled;
-        } else {
-          // Try Apps Script server-side AI fill silently; if not configured, tag pending
-          try {
-            const res = await aiFillEmptyFields(
-              section,
-              { name: name.trim(), category, area, travel, budget, extra3, notes },
-              syncCfg,
-              '',
-              openAiModel
-            );
-            ai = res.data;
-          } catch {
-            pendingTag = '✨ Pending AI fill';
-          }
-        }
-      }
-
-      const pick = (manual: string, aiVal: unknown, fallback = '') =>
-        manual.trim() || (aiVal != null && String(aiVal).trim() ? String(aiVal).trim() : fallback);
-      const pickNum = (manual: string, aiVal: unknown): number | null => {
-        if (manual.trim()) return Number(manual);
-        if (aiVal != null && !Number.isNaN(Number(aiVal))) return Number(aiVal);
-        return null;
-      };
-
-      const finalNotes = pick(notes, ai.notes, pendingTag);
-      const finalLinkUrl = pick(linkUrl, ai.linkUrl, '');
+      const finalLinkUrl = pick(linkUrl, '');
       const finalLinkLabel = pick(
         linkLabel,
-        ai.linkLabel,
         finalLinkUrl ? (section === 'restaurants' ? `Menu · ${name.trim()}` : name.trim()) : ''
       );
 
@@ -196,66 +233,66 @@ export const AddItemModal: React.FC<Props> = ({ section, syncCfg, onClose, onSub
       if (section === 'restaurants') {
         payload = {
           name: name.trim(),
-          cuisine: pick(category, ai.cuisine),
-          area: pick(area, ai.area),
-          travel: pick(travel, ai.travel),
-          romance: pickNum(romance, ai.romance) ?? 0,
-          budget: pickNum(budget, ai.budget),
-          occasion: pick(extra1, ai.occasion),
-          booking: pick(extra2, ai.booking, 'Not checked'),
-          mustTry: pick(extra3, ai.mustTry),
+          cuisine: pick(category),
+          area: pick(area),
+          travel: pick(travel),
+          romance: pickNum(romance) ?? 0,
+          budget: pickNum(budget),
+          occasion: pick(extra1),
+          booking: pick(extra2, 'Not checked'),
+          mustTry: pick(extra3),
           status,
           linkLabel: finalLinkLabel,
           linkUrl: finalLinkUrl,
-          notes: finalNotes,
-          rating: pickNum(rating, ai.rating),
+          notes: pick(notes),
+          rating: pickNum(rating),
         };
       } else if (section === 'dates') {
         payload = {
           name: name.trim(),
-          kind: pick(category, ai.kind, 'Outing'),
-          area: pick(area, ai.area),
-          travel: pick(travel, ai.travel),
-          romance: pickNum(romance, ai.romance) ?? 0,
-          budget: pickNum(budget, ai.budget),
-          timeNeeded: pick(extra1, ai.timeNeeded),
-          setting: pick(extra2, ai.setting, 'Either'),
-          bestMoment: pick(extra3, ai.bestMoment),
+          kind: pick(category, 'Outing'),
+          area: pick(area),
+          travel: pick(travel),
+          romance: pickNum(romance) ?? 0,
+          budget: pickNum(budget),
+          timeNeeded: pick(extra1),
+          setting: pick(extra2, 'Either'),
+          bestMoment: pick(extra3),
           status,
           linkLabel: finalLinkLabel,
           linkUrl: finalLinkUrl,
-          notes: finalNotes,
-          rating: pickNum(rating, ai.rating),
+          notes: pick(notes),
+          rating: pickNum(rating),
         };
       } else if (section === 'winter') {
         payload = {
-          item: pick(category, ai.item, 'Winter jacket'),
-          entryType: pick(subType, ai.entryType, 'Specific item'),
+          item: pick(category, 'Winter jacket'),
+          entryType: pick(subType, 'Specific item'),
           forWho: who,
           storeOrPiece: name.trim(),
-          requirements: pick(extra3, ai.requirements),
-          price: pickNum(budget, ai.price),
-          area: pick(area, ai.area),
-          priority: pick(extra2, ai.priority, 'Must-have'),
+          requirements: pick(extra3),
+          price: pickNum(budget),
+          area: pick(area),
+          priority: pick(extra2, 'Must-have'),
           status,
           linkLabel: finalLinkLabel,
           linkUrl: finalLinkUrl,
-          notes: finalNotes,
+          notes: pick(notes),
         };
       } else {
         payload = {
           item: name.trim(),
-          room: pick(category, ai.room, 'Other'),
-          when: pick(subType, ai.when, 'First week'),
-          priority: pick(extra2, ai.priority, 'Soon'),
-          budget: pickNum(budget, ai.budget),
-          store: pick(extra1, ai.store),
+          room: pick(category, 'Other'),
+          when: pick(subType, 'First week'),
+          priority: pick(extra2, 'Soon'),
+          budget: pickNum(budget),
+          store: pick(extra1),
           who,
-          details: pick(extra3, ai.details),
+          details: pick(extra3),
           status,
           linkLabel: finalLinkLabel,
           linkUrl: finalLinkUrl,
-          notes: finalNotes,
+          notes: pick(notes),
         };
       }
       await onSubmit(section, payload);
@@ -789,18 +826,28 @@ export const AddItemModal: React.FC<Props> = ({ section, syncCfg, onClose, onSub
             />
           </div>
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-full px-5 py-2.5 text-sm font-semibold text-[#8C5366] hover:bg-[#FDEBF0] transition cursor-pointer"
+              className="rounded-full px-4 py-2.5 text-sm font-semibold text-[#8C5366] hover:bg-[#FDEBF0] transition cursor-pointer"
             >
               Cancel
             </button>
             <button
+              type="button"
+              onClick={triggerBackgroundAiAdd}
+              disabled={saving || aiLoading || !name.trim()}
+              title="Close popup right away, add the entry immediately, and fill all empty fields with AI in the background"
+              className="inline-flex items-center gap-1.5 rounded-full bg-[#9669A8] hover:bg-[#7E5290] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition disabled:opacity-50 cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4" />
+              Fill with AI &amp; Add
+            </button>
+            <button
               type="submit"
-              disabled={saving || aiLoading}
-              className="inline-flex items-center gap-1.5 rounded-full bg-[#C95D7E] px-6 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#B24B6B] transition disabled:opacity-60 cursor-pointer"
+              disabled={saving || aiLoading || !name.trim()}
+              className="inline-flex items-center gap-1.5 rounded-full bg-[#C95D7E] px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#B24B6B] transition disabled:opacity-50 cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               {saving ? 'Saving…' : 'Add to list'}
